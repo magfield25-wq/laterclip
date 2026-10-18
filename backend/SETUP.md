@@ -10,7 +10,7 @@
 
 1. 이미 만들어 둔 영상 보관함 Google Sheets를 엽니다. 새 시트를 중복 생성하지 않습니다.
 2. 해당 시트의 `Extensions > Apps Script`에서 `Code.gs` 내용을 붙여 넣고 HTML 파일 `Bridge`를 추가하여 `Bridge.html` 내용을 붙여 넣습니다.
-3. 함수 선택에서 `setupLaterClip_`을 선택하고 `Run`으로 실행합니다. 본인 계정으로 Google 권한 요청을 확인합니다. 이 함수는 기존 행을 지우지 않으며 헤더가 다르면 오류로 멈춥니다.
+3. 함수 선택에서 `initializeLaterClip`을 선택하고 `Run`으로 실행합니다. 본인 계정으로 Google 권한 요청을 확인합니다. 이 함수는 기존 행을 지우지 않으며 헤더가 다르면 오류로 멈춥니다. 최초 설정 성공 후 재실행은 차단됩니다.
 4. `Project Settings > Script properties`에서 생성된 `SPREADSHEET_ID`, `API_TOKEN`, `WEB_ORIGIN`을 확인합니다. `WEB_ORIGIN`은 Pages의 출처이며 기본값은 `https://magfield25-wq.github.io`입니다. 저장소 경로를 포함하지 않습니다. 인증 키를 공개 파일이나 채팅에 붙여 넣지 않습니다.
 5. `Deploy > New deployment`에서 `Web app`을 선택합니다. `Execute as`는 본인 계정, `Who has access`는 `Anyone`으로 설정합니다. 개인 토큰 인증을 코드에서 별도로 검사하므로 클라이언트에 Google OAuth 로그인을 요구하지 않는 구성입니다. 시트 공유 권한은 변경하지 않습니다. Workspace 정책으로 이 배포 방식이 막혀 있으면 개인 계정 또는 OAuth 방식으로 별도 구성해야 합니다.
 6. 배포된 `/exec` 주소를 복사합니다. `/dev` 테스트 주소는 사용하지 않습니다.

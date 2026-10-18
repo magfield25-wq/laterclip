@@ -25,7 +25,7 @@ AI가 영상 내용을 분석하지 않습니다. Facebook이나 비공개 영�
 ## 최초 설정
 
 1. `backend/SETUP.md`의 순서로 시트에 연결된 Apps Script에 `Code.gs`와 `Bridge.html`을 추가합니다.
-2. `setupLaterClip_` 함수를 한 번 실행하고 Google 권한을 검토합니다.
+2. `initializeLaterClip` 함수를 한 번 실행하고 Google 권한을 검토합니다.
 3. Script properties의 `WEB_ORIGIN`을 본인 Pages 출처로 설정합니다. 저장소 경로를 제외한 `https://사용자이름.github.io` 형태입니다.
 4. 스크립트를 배포하고 발급된 `/exec` 주소와 `API_TOKEN`을 웹앱에서 입력합니다. `API_TOKEN`은 GitHub에 커밋하지 않습니다.
 5. `shortcuts/SETUP.md`에 따라 iPhone과 Mac의 저장 단축어를 각각 구성합니다.

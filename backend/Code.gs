@@ -2,6 +2,14 @@
 const HEADERS = ['id','savedAt','title','url','platform','category','watched','note','device','updatedAt','thumbnailURL'];
 const CATEGORIES = ['요리','여행','운동','배움','테크','즐길 거리','미분류'];
 
+// Editor-visible bootstrap. Disabled permanently after its first successful run.
+function initializeLaterClip() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SETUP_DONE') === 'true') throw new Error('최초 설정이 이미 완료되었습니다.');
+  setupLaterClip_();
+  props.setProperty('SETUP_DONE','true');
+}
+
 // Run once from the editor, then copy API_TOKEN from Project Settings > Script properties.
 function setupLaterClip_() {
   const props = PropertiesService.getScriptProperties();
