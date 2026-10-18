@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f8f7f3"><meta name="referrer" content="no-referrer">
+<meta name="description" content="iPhone과 Mac에서 함께 쓰는 나중에 볼 영상 보관함">
+<title>LaterClip · 나중에 볼 영상</title>
+<link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./style.css">
+<script type="module" src="./app.js"></script>
+</head><body>
+<a class="skip" href="#main">영상 목록으로 건너뛰기</a>
+<div class="app-shell">
+ <aside class="sidebar" aria-label="보관함 탐색">
+  <a href="./" class="brand"><img src="./icon.svg" width="30" height="30" alt=""><span>LaterClip</span></a>
+  <nav class="navigation" id="library-nav" aria-label="영상 목록">
+   <button data-section="전체 영상" aria-pressed="false"><span>▦</span>전체 영상<b data-total>0</b></button>
+   <button data-section="아직 안 본 영상" aria-pressed="true"><span>▷</span>아직 안 본 영상<b data-unwatched>0</b></button>
+   <button data-section="시청 완료" aria-pressed="false"><span>✓</span>시청 완료<b data-watched>0</b></button>
+  </nav>
+  <div class="category-group"><h2>카테고리</h2><nav class="navigation" id="categories" aria-label="카테고리"></nav></div>
+  <div class="sidebar-bottom"><button id="help-button" class="quiet">Safari에서 저장하기 <span>↗</span></button><button id="settings-button" class="quiet">연결 설정 <span>⚙</span></button><div class="privacy"><span class="status-dot"></span>나만의 영상 보관함</div></div>
+ </aside>
+ <main id="main">
+  <header class="main-header"><div><p class="eyebrow">SAVED FOR A LITTLE LATER</p><h1 id="section-title">아직 안 본 영상</h1><p id="subtitle">마음에 든 영상을 모아두세요.</p></div><button id="add-button" class="primary" disabled><span aria-hidden="true">＋</span> 링크 저장</button></header>
+  <div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="제목, 링크, 메모 검색" aria-label="영상 검색" autocomplete="off"></label><select id="platform" aria-label="플랫폼 필터"><option value="">전체 플랫폼</option><option>YouTube</option><option>Facebook</option><option>Web</option></select></div>
+  <div id="error-banner" role="alert" hidden><span id="error-text"></span><button id="retry-button" class="secondary">다시 시도</button></div>
+  <section id="welcome" class="empty-state"><img src="./icon.svg" width="54" height="54" alt=""><h2>좋은 영상, 나중에 놓치지 않게.</h2><p>iPhone에서 저장한 영상도, Mac에서 찾은 영상도<br>하나의 보관함에서 만나보세요.</p><button id="connect-button" class="primary">내 보관함 연결</button><button class="quiet" id="welcome-help">저장 방법 보기 ↗</button></section>
+  <section id="empty" class="empty-state" hidden><span class="empty-symbol" aria-hidden="true">▧</span><h2 id="empty-title">아직 저장한 영상이 없습니다</h2><p id="empty-description">Safari의 공유 단축어로 저장하거나 링크를 추가해 주세요.</p></section>
+  <section id="grid" class="video-grid" aria-label="저장한 영상"></section>
+  <footer><div class="sync"><span id="sync-dot" class="status-dot disconnected"></span><span id="sync-status" aria-live="polite">연결 전</span></div><button id="refresh-button" class="quiet" disabled>↻ 새로고침</button></footer>
+ </main>
+</div>
+<div id="toast" role="status" hidden></div>
+<dialog id="settings-dialog" aria-labelledby="settings-title"><form id="settings-form">
+ <div class="dialog-heading"><div><p class="eyebrow">YOUR PRIVATE LIBRARY</p><h2 id="settings-title">내 보관함 연결</h2></div><button type="button" class="icon-button" data-close="settings-dialog" aria-label="닫기">×</button></div>
+ <p class="dialog-description">처음 한 번, 개인 저장소의 연결 정보를 입력해 주세요.</p>
+ <label for="endpoint">연결 주소</label><input id="endpoint" type="url" placeholder="https://script.google.com/macros/s/…/exec" required autocomplete="off" spellcheck="false">
+ <label for="token">개인 연결 키</label><input id="token" type="password" minlength="32" placeholder="본인 Apps Script에서 발급한 키" required autocomplete="off" spellcheck="false">
+ <label class="check"><input id="remember-session" type="checkbox">이 탭에서 새로고침 후에도 연결 유지</label>
+ <p class="field-note">기본 설정에서는 키를 메모리에만 보관합니다. 연결 정보는 다른 사람에게 공유하지 마세요.</p>
+ <p id="settings-error" class="form-error" role="alert" hidden></p>
+ <div class="dialog-actions"><button id="disconnect-button" type="button" class="quiet danger" hidden>연결 해제</button><button class="primary" id="save-settings">연결 확인</button></div>
+</form></dialog>
+<dialog id="clip-dialog" aria-labelledby="clip-dialog-title"><form id="clip-form">
+ <div class="dialog-heading"><h2 id="clip-dialog-title">나중에 볼 영상 저장</h2><button type="button" class="icon-button" data-close="clip-dialog" aria-label="닫기">×</button></div>
+ <div id="url-field"><label for="clip-url">영상 링크</label><input id="clip-url" type="url" placeholder="https://…" required spellcheck="false"></div>
+ <label for="clip-title">제목 <span class="optional">선택</span></label><input id="clip-title" maxlength="300" placeholder="YouTube 제목은 가능한 경우 자동으로 가져옵니다.">
+ <div id="edit-fields" hidden><label for="clip-category">카테고리</label><select id="clip-category"></select><label class="check"><input id="clip-watched" type="checkbox">시청 완료</label></div>
+ <label for="clip-note">메모 <span class="optional">선택</span></label><textarea id="clip-note" rows="3" maxlength="2000" placeholder="다음에 볼 때 기억하고 싶은 것"></textarea>
+ <p class="field-note" id="classify-note">제목의 키워드로 분류합니다. 제목을 알 수 없으면 미분류로 저장합니다.</p>
+ <p id="clip-error" class="form-error" role="alert" hidden></p>
+ <div class="dialog-actions"><button type="button" class="secondary" data-close="clip-dialog">취소</button><button class="primary" id="save-clip">저장</button></div>
+</form></dialog>
+<dialog id="delete-dialog" aria-labelledby="delete-title"><div class="dialog-heading"><h2 id="delete-title">영상을 삭제하시겠습니까?</h2></div><p id="delete-name" class="dialog-description"></p><p class="field-note">보관함과 Google Sheets에서 항목이 삭제됩니다.</p><p id="delete-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary" data-close="delete-dialog">취소</button><button id="confirm-delete" class="primary destructive">삭제</button></div></dialog>
+<dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">Safari에서 보관함까지</h2><button class="icon-button" data-close="help-dialog" aria-label="닫기">×</button></div><ol class="help-steps"><li><b>마음에 드는 영상을 찾으세요.</b><p>iPhone의 YouTube·Facebook 앱이나 iPhone·Mac의 Safari에서 시작하세요.</p></li><li><b>Share → ‘LaterClip에 저장’</b><p>별도로 설치한 Shortcuts 단축어가 연결된 시트에 링크를 보냅니다.</p></li><li><b>이 웹사이트에서 다시 보세요.</b><p>같은 보관함을 연결하면 두 기기에서 같은 목록을 볼 수 있습니다.</p></li></ol><p class="field-note">단축어와 Apps Script를 먼저 설정해야 합니다. 웹사이트를 여는 것만으로 Share 메뉴에 등록되지는 않습니다. Mac이 꺼져 있어도 저장할 수 있으며 인터넷 연결은 필요합니다.</p><a class="secondary help-link" href="./setup.html">최초 연결 안내 보기 ↗</a></dialog>
+<template id="video-template"><article class="video"><a class="thumbnail" target="_blank" rel="noopener noreferrer"><div class="thumbnail-placeholder"><span aria-hidden="true">▷</span><small>SAVED FOR LATER</small></div><img loading="lazy" alt="" hidden><span class="open-indicator" aria-hidden="true">↗</span></a><div class="video-body"><div class="video-meta"><span class="video-platform"></span><span class="category-pill"></span></div><a class="video-title" target="_blank" rel="noopener noreferrer"></a><p class="video-note" hidden></p><div class="video-bottom"><span class="video-date"></span><div class="card-actions"><button class="watch-button" aria-label="시청 완료로 변경" aria-pressed="false">○</button><button class="edit-button" aria-label="영상 정보 수정">수정</button><button class="delete-button" aria-label="영상 삭제">×</button></div></div></div></article></template>
+</body></html>

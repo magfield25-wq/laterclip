@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head><body>
+<script>
+(() => {
+  'use strict';
+  const allowedOrigin = <?!= JSON.stringify(allowedOrigin) ?>;
+  const channel = <?!= JSON.stringify(channel) ?>;
+  const post = message => window.top.postMessage({namespace:'laterclip',channel,...message},allowedOrigin);
+  window.addEventListener('message', event => {
+    if (event.origin !== allowedOrigin || event.source !== window.top) return;
+    const message = event.data;
+    if (!message || message.namespace !== 'laterclip' || message.channel !== channel || message.type !== 'request') return;
+    if (typeof message.id !== 'string' || !/^[a-f0-9]{32}$/.test(message.id)) return;
+    google.script.run.withSuccessHandler(result => post({type:'response',id:message.id,result}))
+      .withFailureHandler(() => post({type:'response',id:message.id,result:{ok:false,error:'Google 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.'}}))
+      .callLaterClip(message.payload);
+  });
+  post({type:'ready'});
+})();
+</script>
+</body></html>
