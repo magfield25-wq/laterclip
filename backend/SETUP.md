@@ -39,6 +39,8 @@
 공식 참고: [Web Apps](https://developers.google.com/apps-script/guides/web), [Deployments](https://developers.google.com/apps-script/concepts/deployments).
 # Gemini 자동 분류
 
+삭제는 영구 삭제가 아니라 보관 기록으로 이동합니다. 기존 11개 열은 유지하고, 처음 인증된 요청에서 마지막에 `archivedAt` 열만 추가합니다. 보관 기록에서는 복원할 수 있으며, 같은 URL을 다시 저장해도 원래 항목이 복원됩니다. 이전 클라이언트의 `delete` 요청도 보관 처리됩니다. API의 `list`는 기본적으로 활성 영상만 반환하며, `includeArchived: true`일 때 보관 기록도 반환합니다.
+
 카테고리는 고정 목록이 아닙니다. AI가 저장된 카테고리 이름을 우선 재사용하고 맞는 이름이 없으면 짧은 새 이름을 만듭니다. 웹 화면의 카테고리 목록은 실제 영상 데이터로 구성됩니다. 수정 화면에서는 기존 이름을 선택하거나 새 이름을 직접 입력할 수 있고, AI로 다시 분류를 실행할 수도 있습니다. 다시 분류는 해당 항목의 카테고리를 즉시 저장하며, 자동 동기화가 수동 분류를 덮어쓰지는 않습니다.
 
 Script properties에 `GEMINI_API_KEY`를 추가하면 새 영상 저장 시 제목을 Gemini에 보내 카테고리를 선택합니다. 키를 GitHub, 시트, 단축어, 웹사이트 설정에 넣지 마세요. `checkGeminiConnection`을 편집기에서 한 번 실행하면 사용 가능한 Flash 모델을 확인하고 연결을 검사합니다. 모델은 `GEMINI_MODEL`에 저장됩니다.

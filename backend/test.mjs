@@ -11,8 +11,8 @@ const literal=v=>typeof v==='string' && v.startsWith("'") ? v.slice(1) : v;
 const sheet={
  getDataRange:()=>({getValues:()=>{reads++;return rows.map(r=>[...r]);}}),
  appendRow:r=>{writes++;rows.push(r.map(literal));},
- getRange:(row,col,height,width)=>({setValues:matrix=>{writes++;rows[row-1]=matrix[0].map(literal);}}),
- deleteRow:row=>{writes++;rows.splice(row-1,1);}
+ getRange:(row,col,height,width)=>({setValues:matrix=>{writes++;matrix.forEach((values,i)=>{rows[row-1+i] ||= [];values.forEach((v,j)=>{rows[row-1+i][col-1+j]=literal(v);});});}}),
+ deleteRow:()=>{throw Error('Rows must never be permanently deleted');}
 };
 const context=vm.createContext({Date,JSON,Error,SyntaxError,String,Math,encodeURIComponent,
  PropertiesService:{getScriptProperties:()=>({getProperty:k=>k==='API_TOKEN'?secret:k==='SPREADSHEET_ID'?'sheet-id':null})},
@@ -47,8 +47,19 @@ assert.equal(call({action:'update',id:first.clip.id,expectedUpdatedAt:updated.cl
 assert.equal(context.safeCell_(' =IMPORTXML("x")'),"' =IMPORTXML(\"x\")");
 assert.equal(context.safeCell_('ordinary text'),'ordinary text');
 assert.equal(call({action:'list'}).clips.length,3);
-assert.equal(call({action:'delete',id:first.clip.id,expectedUpdatedAt:updated.clip.updatedAt}).ok,true);
+const archived=call({action:'delete',id:first.clip.id,expectedUpdatedAt:updated.clip.updatedAt});
+assert.equal(archived.ok,true);assert.ok(archived.clip.archivedAt);
+assert.equal(rows.length,4,'Archive keeps all physical sheet rows');
 assert.equal(call({action:'list'}).clips.length,2);
+assert.equal(call({action:'list',includeArchived:true}).clips.length,3);
+assert.equal(call({action:'restore',id:first.clip.id,expectedUpdatedAt:updated.clip.updatedAt}).conflict,true);
+const restored=call({action:'restore',id:first.clip.id,expectedUpdatedAt:archived.clip.updatedAt});
+assert.equal(restored.clip.archivedAt,'');assert.equal(restored.clip.watched,true);assert.equal(restored.clip.category,'배움');
+const archivedAgain=call({action:'archive',id:first.clip.id,expectedUpdatedAt:restored.clip.updatedAt});
+assert.equal(archivedAgain.ok,true);
+const resaved=call({action:'save',url:first.clip.url});
+assert.equal(resaved.restored,true);assert.equal(resaved.clip.id,first.clip.id);assert.equal(resaved.clip.archivedAt,'');
+assert.equal(rows.length,4,'Saving an archived URL restores its original row');
 assert.equal(call({action:'unsupported'}).ok,false);
 assert.equal(context.callLaterClip({action:'list',token:secret}).ok,true);
 assert.equal(context.callLaterClip({action:'list',token:'wrong'}).ok,false);

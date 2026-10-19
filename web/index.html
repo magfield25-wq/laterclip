@@ -6,7 +6,7 @@
 <title>LaterClip · 나중에 볼 영상</title>
 <link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./style.css">
-<script type="module" src="./app.js?v=20261019-connection1"></script>
+<script type="module" src="./app.js?v=20261019-archive1"></script>
 </head><body>
 <a class="skip" href="#main">영상 목록으로 건너뛰기</a>
 <div class="app-shell">
@@ -16,6 +16,7 @@
    <button data-section="전체 영상" aria-pressed="false"><span>▦</span>전체 영상<b data-total>0</b></button>
    <button data-section="아직 안 본 영상" aria-pressed="true"><span>▷</span>아직 안 본 영상<b data-unwatched>0</b></button>
    <button data-section="시청 완료" aria-pressed="false"><span>✓</span>시청 완료<b data-watched>0</b></button>
+   <button data-section="보관 기록" aria-pressed="false"><span>▣</span>보관 기록<b data-archived>—</b></button>
   </nav>
   <div class="category-group"><h2>카테고리</h2><nav class="navigation" id="categories" aria-label="카테고리"></nav></div>
   <div class="sidebar-bottom"><button id="help-button" class="quiet">Safari에서 저장하기 <span>↗</span></button><button id="settings-button" class="quiet">연결 설정 <span>⚙</span></button><div class="privacy"><span class="status-dot"></span>나만의 영상 보관함</div></div>
@@ -51,7 +52,7 @@
  <p id="clip-error" class="form-error" role="alert" hidden></p>
  <div class="dialog-actions"><button type="button" class="secondary" data-close="clip-dialog">취소</button><button class="primary" id="save-clip">저장</button></div>
 </form></dialog>
-<dialog id="delete-dialog" aria-labelledby="delete-title"><div class="dialog-heading"><h2 id="delete-title">영상을 삭제하시겠습니까?</h2></div><p id="delete-name" class="dialog-description"></p><p class="field-note">보관함과 Google Sheets에서 항목이 삭제됩니다.</p><p id="delete-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary" data-close="delete-dialog">취소</button><button id="confirm-delete" class="primary destructive">삭제</button></div></dialog>
+<dialog id="delete-dialog" aria-labelledby="delete-title"><div class="dialog-heading"><h2 id="delete-title">보관 기록으로 옮길까요?</h2></div><p id="delete-name" class="dialog-description"></p><p class="field-note">일반 목록에서만 숨겨집니다. 영상 정보는 그대로 남고, 보관 기록에서 언제든 복원할 수 있습니다.</p><p id="delete-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary" data-close="delete-dialog">취소</button><button id="confirm-delete" class="primary">보관 기록으로 이동</button></div></dialog>
 <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">Safari에서 보관함까지</h2><button class="icon-button" data-close="help-dialog" aria-label="닫기">×</button></div><ol class="help-steps"><li><b>마음에 드는 영상을 찾으세요.</b><p>iPhone의 YouTube·Facebook 앱이나 iPhone·Mac의 Safari에서 시작하세요.</p></li><li><b>Share → ‘LaterClip에 저장’</b><p>별도로 설치한 Shortcuts 단축어가 연결된 시트에 링크를 보냅니다.</p></li><li><b>이 웹사이트에서 다시 보세요.</b><p>같은 보관함을 연결하면 두 기기에서 같은 목록을 볼 수 있습니다.</p></li></ol><p class="field-note">단축어와 Apps Script를 먼저 설정해야 합니다. 웹사이트를 여는 것만으로 Share 메뉴에 등록되지는 않습니다. Mac이 꺼져 있어도 저장할 수 있으며 인터넷 연결은 필요합니다.</p><a class="secondary help-link" href="./setup.html">최초 연결 안내 보기 ↗</a></dialog>
 <template id="video-template"><article class="video"><a class="thumbnail" target="_blank" rel="noopener noreferrer"><div class="thumbnail-placeholder"><span aria-hidden="true">▷</span><small>SAVED FOR LATER</small></div><img loading="lazy" alt="" hidden><span class="open-indicator" aria-hidden="true">↗</span></a><div class="video-body"><div class="video-meta"><span class="video-platform"></span><span class="category-pill"></span></div><a class="video-title" target="_blank" rel="noopener noreferrer"></a><p class="video-note" hidden></p><div class="video-bottom"><span class="video-date"></span><div class="card-actions"><button class="watch-button" aria-label="시청 완료로 변경" aria-pressed="false">○</button><button class="edit-button" aria-label="영상 정보 수정">수정</button><button class="delete-button" aria-label="영상 삭제">×</button></div></div></div></article></template>
 </body></html>

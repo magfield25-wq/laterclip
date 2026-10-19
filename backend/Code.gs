@@ -1,5 +1,5 @@
 /* Bound to the private LaterClip spreadsheet. Deploy instructions: SETUP.md. */
-const HEADERS = ['id','savedAt','title','url','platform','category','watched','note','device','updatedAt','thumbnailURL'];
+const HEADERS = ['id','savedAt','title','url','platform','category','watched','note','device','updatedAt','thumbnailURL','archivedAt'];
 const CATEGORIES = ['요리','여행','운동','배움','테크','즐길 거리','미분류'];
 
 // Editor-visible bootstrap. Disabled permanently after its first successful run.
@@ -59,31 +59,52 @@ function doPost(e) {
     const sheet = SpreadsheetApp.openById(sheetID).getSheetByName('Clips');
     if (!sheet) throw new Error('Clips 탭이 없습니다.');
     const rows = sheet.getDataRange().getValues();
-    if (HEADERS.some((h,i) => rows[0][i] !== h)) throw new Error('시트의 헤더 순서를 확인해 주세요.');
+    if (HEADERS.slice(0,-1).some((h,i) => rows[0][i] !== h)) throw new Error('시트의 헤더 순서를 확인해 주세요.');
+    if (!rows[0][HEADERS.length-1]) {
+      sheet.getRange(1,HEADERS.length,1,1).setValues([['archivedAt']]);
+      rows[0][HEADERS.length-1]='archivedAt';
+    }
+    if (rows[0][HEADERS.length-1] !== 'archivedAt') throw new Error('보관 기록 열을 확인해 주세요. 기존 데이터는 변경하지 않았습니다.');
     const clips = rows.slice(1).filter(r => r[0]).map(record_);
-    if (request.action === 'list') return json_({ok:true,clips:clips.reverse()});
+    if (request.action === 'list') return json_({ok:true,clips:clips.filter(c=>request.includeArchived===true || !c.archivedAt).reverse()});
     if (request.action === 'save') {
       const url = normalizeURL_(request.url);
       const duplicate = clips.find(c => normalizeURL_(c.url) === url);
-      if (duplicate) return json_({ok:true,clip:duplicate,duplicate:true});
+      if (duplicate) {
+        if (duplicate.archivedAt) {
+          duplicate.archivedAt='';
+          duplicate.updatedAt=nextRevision_(duplicate);
+          const index=rows.findIndex(r=>r[0]===duplicate.id);
+          sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(duplicate[h]))]);
+          SpreadsheetApp.flush();
+          return json_({ok:true,clip:duplicate,duplicate:true,restored:true});
+        }
+        return json_({ok:true,clip:duplicate,duplicate:true});
+      }
       const meta = metadata_(url);
       const title = bounded_(request.title, 300) || meta.title || '제목 없는 영상';
       const now = new Date().toISOString();
       const clip = {id:Utilities.getUuid(),savedAt:now,title,url,platform:platform_(url),
         category:classifyAI_(title,false,clips.map(c=>c.category)),watched:false,note:bounded_(request.note,2000),
-        device:request.device === 'iPhone' ? 'iPhone' : 'Mac',updatedAt:now,thumbnailURL:meta.thumbnailURL};
+        device:request.device === 'iPhone' ? 'iPhone' : 'Mac',updatedAt:now,thumbnailURL:meta.thumbnailURL,archivedAt:''};
       sheet.appendRow(HEADERS.map(h => safeCell_(clip[h])));
       SpreadsheetApp.flush();
       return json_({ok:true,clip,duplicate:false});
     }
-    if (request.action === 'update' || request.action === 'delete' || request.action === 'refreshMetadata' || request.action === 'reclassify') {
+    if (['update','delete','archive','restore','refreshMetadata','reclassify'].includes(request.action)) {
       const index = rows.findIndex((r,i) => i > 0 && r[0] === request.id);
       if (index < 1) throw new Error('영상을 찾지 못했습니다. 새로고침해 주세요.');
       const clip = record_(rows[index]);
       if (!request.expectedUpdatedAt || request.expectedUpdatedAt !== clip.updatedAt) {
         return json_({ok:false,error:'다른 곳에서 수정된 항목입니다. 새로고침 후 다시 시도해 주세요.',conflict:true});
       }
-      if (request.action === 'delete') { sheet.deleteRow(index+1); return json_({ok:true}); }
+      if (request.action === 'delete' || request.action === 'archive' || request.action === 'restore') {
+        clip.updatedAt=nextRevision_(clip);
+        clip.archivedAt=request.action==='restore'?'':clip.archivedAt || clip.updatedAt;
+        sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(clip[h]))]);
+        SpreadsheetApp.flush(); return json_({ok:true,clip});
+      }
+      if (clip.archivedAt) throw new Error('보관 기록에서 먼저 복원해 주세요.');
       if (request.action === 'reclassify') {
         if (!clip.title || clip.title === '제목 없는 영상') throw new Error('제목을 먼저 입력하거나 다시 가져와 주세요.');
         clip.category=classifyAI_(clip.title,true,clips.map(c=>c.category));
@@ -127,6 +148,7 @@ function doPost(e) {
 }
 
 function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
+function nextRevision_(clip) {return new Date(Math.max(Date.now(),Date.parse(clip.updatedAt)+1 || 0)).toISOString();}
 function bounded_(value,max) { return typeof value === 'string' ? value.trim().slice(0,max) : ''; }
 function safeCell_(v) { return typeof v === 'string' && /^[\s]*[=+@-]/.test(v) ? "'"+v : v; }
 function record_(row) {
@@ -223,7 +245,7 @@ function checkGeminiConnection() {
 function categoryName_(value) {
   if (typeof value !== 'string') return '';
   const text=value.normalize('NFKC').trim().replace(/\s+/g,' ');
-  return text.length>0 && text.length<=24 && /^[\p{L}\p{N} ·&/()_-]+$/u.test(text) && !/^[=_-]/.test(text) && !['전체 영상','아직 안 본 영상','시청 완료'].includes(text) ? text : '';
+  return text.length>0 && text.length<=24 && /^[\p{L}\p{N} ·&/()_-]+$/u.test(text) && !/^[=_-]/.test(text) && !['전체 영상','아직 안 본 영상','시청 완료','보관 기록'].includes(text) ? text : '';
 }
 function categoryKey_(value) {return String(value).toLowerCase().replace(/[\s·&/()_-]/g,'');}
 function reuseCategory_(category,existing) {

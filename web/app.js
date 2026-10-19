@@ -4,7 +4,7 @@ import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
 
 const $=selector=>document.querySelector(selector);
 const categoryIcons={'요리':'♧','여행':'✈','운동':'↟','배움':'▤','테크':'▣','즐길 거리':'♫','미분류':'▧'};
-const librarySections=['전체 영상','아직 안 본 영상','시청 완료'];
+const librarySections=['전체 영상','아직 안 본 영상','시청 완료','보관 기록'];
 const state={clips:[],api:null,busy:false,section:'아직 안 본 영상',editing:null,deleting:null,syncedAt:null};
 const sessionKey='laterclip.connection.v1';
 const session={
@@ -13,11 +13,12 @@ const session={
 };
 let toastTimer;
 function renderCategories(){
- const names=[...new Set(state.clips.map(c=>c.category||'미분류'))].sort((a,b)=>a==='미분류'?1:b==='미분류'?-1:a.localeCompare(b,'ko'));
+ const active=state.clips.filter(c=>!c.archivedAt);
+ const names=[...new Set(active.map(c=>c.category||'미분류'))].sort((a,b)=>a==='미분류'?1:b==='미분류'?-1:a.localeCompare(b,'ko'));
  $('#categories').replaceChildren(...names.map(name=>{
   const button=document.createElement('button');button.dataset.section=name;button.setAttribute('aria-pressed',String(state.section===name));
   const symbol=document.createElement('span');symbol.textContent=categoryIcons[name]||'▦';
-  const label=document.createTextNode(name);const count=document.createElement('b');count.textContent=state.clips.filter(c=>(c.category||'미분류')===name).length;
+  const label=document.createTextNode(name);const count=document.createElement('b');count.textContent=active.filter(c=>(c.category||'미분류')===name).length;
   button.append(symbol,label,count);return button;
  }));
  $('#category-options').replaceChildren(...names.map(name=>{const option=document.createElement('option');option.value=name;return option;}));
@@ -41,20 +42,22 @@ function setBusy(busy){state.busy=busy;$('#grid').setAttribute('aria-busy',Strin
 function synced(){state.syncedAt=new Date();clearError();$('#sync-status').textContent=`Google Sheets · ${state.syncedAt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 동기화`;$('#sync-dot').className='status-dot';}
 function visibleClips(){
  const query=$('#search').value.trim().toLocaleLowerCase(),platform=$('#platform').value;
- return state.clips.filter(c=>(state.section!=='아직 안 본 영상'||!c.watched)&&(state.section!=='시청 완료'||c.watched)&&(librarySections.includes(state.section)||(c.category||'미분류')===state.section)&&(!platform||c.platform===platform)&&(!query||`${c.title} ${c.url} ${c.note}`.toLocaleLowerCase().includes(query)));
+ return state.clips.filter(c=>(state.section==='보관 기록'?!!c.archivedAt:!c.archivedAt)&&(state.section!=='아직 안 본 영상'||!c.watched)&&(state.section!=='시청 완료'||c.watched)&&(librarySections.includes(state.section)||(c.category||'미분류')===state.section)&&(!platform||c.platform===platform)&&(!query||`${c.title} ${c.url} ${c.note}`.toLocaleLowerCase().includes(query)));
 }
 function render(){
  renderCategories();
  $('#section-title').textContent=state.api?state.section:'보관함 연결이 필요합니다';
  const clips=visibleClips();
  $('#subtitle').textContent=state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'아직 영상 수를 조회하지 않았습니다. 내 보관함을 연결해 주세요.';
- $('[data-total]').textContent=state.api?state.clips.length:'—';$('[data-unwatched]').textContent=state.api?state.clips.filter(c=>!c.watched).length:'—';$('[data-watched]').textContent=state.api?state.clips.filter(c=>c.watched).length:'—';
+ const active=state.clips.filter(c=>!c.archivedAt);
+ $('[data-total]').textContent=state.api?active.length:'—';$('[data-unwatched]').textContent=state.api?active.filter(c=>!c.watched).length:'—';$('[data-watched]').textContent=state.api?active.filter(c=>c.watched).length:'—';$('[data-archived]').textContent=state.api?state.clips.filter(c=>c.archivedAt).length:'—';
  document.querySelectorAll('[data-section]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.section===state.section)));
  document.querySelectorAll('[data-category-count]').forEach(b=>b.textContent=state.clips.filter(c=>c.category===b.dataset.categoryCount).length);
  $('#welcome').hidden=!!state.api;$('#empty').hidden=!state.api||clips.length>0;
  const filtering=$('#search').value||$('#platform').value||state.section!=='전체 영상';
  $('#empty-title').textContent=state.clips.length&&filtering?'조건에 맞는 영상이 없습니다':'아직 저장한 영상이 없습니다';
  $('#empty-description').textContent=state.clips.length&&filtering?'검색어나 카테고리를 바꿔보세요.':'Safari의 공유 단축어로 저장하거나 링크를 추가해 주세요.';
+ if(state.section==='보관 기록'&&!clips.length){$('#empty-title').textContent='보관 기록이 없습니다';$('#empty-description').textContent='목록에서 삭제한 영상은 여기에 남으며 언제든 복원할 수 있습니다.';}
  const fragment=document.createDocumentFragment();
  for(const clip of clips){
   const card=$('#video-template').content.cloneNode(true);const article=card.querySelector('article');article.dataset.id=clip.id;
@@ -68,6 +71,9 @@ function render(){
   const note=card.querySelector('.video-note');note.hidden=!clip.note;note.textContent=clip.note;
   const date=new Date(clip.savedAt);card.querySelector('.video-date').textContent=`${clip.device||'Web'} · ${Number.isNaN(date.getTime())?'날짜 없음':date.toLocaleDateString('ko-KR',{month:'short',day:'numeric'})}`;
   const watch=card.querySelector('.watch-button');watch.textContent=clip.watched?'✓':'○';watch.setAttribute('aria-pressed',String(clip.watched));watch.setAttribute('aria-label',`${clip.title}: ${clip.watched?'미시청':'시청 완료'}으로 변경`);
+  watch.hidden=!!clip.archivedAt;card.querySelector('.edit-button').hidden=!!clip.archivedAt;
+  const archiveButton=card.querySelector('.delete-button');archiveButton.textContent=clip.archivedAt?'복원':'×';archiveButton.setAttribute('aria-label',clip.archivedAt?'보관함으로 복원':'보관 기록으로 이동');archiveButton.title=clip.archivedAt?'보관함으로 복원':'보관 기록으로 이동';
+  if(clip.archivedAt)card.querySelector('.video-date').textContent=`보관일 · ${new Date(clip.archivedAt).toLocaleDateString('ko-KR')}`;
   fragment.append(card);
  }
  $('#grid').replaceChildren(fragment);
@@ -75,7 +81,7 @@ function render(){
 }
 async function refresh(){
  if(!state.api||state.busy)return;setBusy(true);
- try{const result=await state.api.request('list');if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));synced();render();}
+ try{const result=await state.api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));synced();render();}
  catch(error){setError(error);}finally{setBusy(false);}
 }
 function openSettings(){if(state.busy)return;$('#settings-error').hidden=true;$('#endpoint').value=state.api?.endpoint||config.apiURL||'';$('#token').value='';$('#settings-dialog').showModal();}
@@ -85,7 +91,7 @@ function replaceClip(clip){const i=state.clips.findIndex(c=>c.id===clip.id);if(i
 async function connect(endpoint,token,remember){
  const api=new ClipAPI(endpoint,token);setBusy(true);
  try{
-  const result=await api.request('list');if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');
+  const result=await api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');
   state.api?.close();state.api=api;state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));state.section='아직 안 본 영상';
   session.write(remember?{endpoint,token}:null);
   $('#token').value='';synced();render();return true;
@@ -100,7 +106,10 @@ document.addEventListener('click',event=>{
  const card=button.closest('article[data-id]');if(!card||state.busy)return;
  const clip=state.clips.find(c=>c.id===card.dataset.id);if(!clip)return;
  if(button.classList.contains('edit-button'))openEdit(clip);
- else if(button.classList.contains('delete-button')){state.deleting=clip;$('#delete-name').textContent=clip.title;$('#delete-error').hidden=true;$('#delete-dialog').showModal();}
+ else if(button.classList.contains('delete-button')){
+  if(clip.archivedAt){setBusy(true);state.api.request('restore',{id:clip.id,expectedUpdatedAt:clip.updatedAt}).then(result=>{replaceClip(result.clip);synced();render();toast('보관함으로 복원했습니다.');}).catch(setError).finally(()=>setBusy(false));}
+  else{state.deleting=clip;$('#delete-name').textContent=clip.title;$('#delete-error').hidden=true;$('#delete-dialog').showModal();}
+ }
  else if(button.classList.contains('watch-button')){
   setBusy(true);state.api.request('update',{id:clip.id,expectedUpdatedAt:clip.updatedAt,patch:{watched:!clip.watched}}).then(result=>{
    replaceClip(result.clip);synced();render();toast(clip.watched?'미시청으로 변경했습니다.':'시청 완료로 표시했습니다.');
@@ -123,12 +132,12 @@ $('#clip-form').addEventListener('submit',async event=>{
  try{
   const result=editing?await state.api.request('update',{id:editing.id,expectedUpdatedAt:editing.updatedAt,patch:{title,note,category:$('#clip-category').value,watched:$('#clip-watched').checked}}):await state.api.request('save',{url,title,note,device:/iPhone|iPad/.test(navigator.userAgent)?'iPhone':'Mac'});
   if(!result.clip)throw Error('저장 결과를 받지 못했습니다. 새로고침으로 확인해 주세요.');
-  replaceClip(result.clip);synced();render();$('#clip-dialog').close();toast(result.duplicate?'이미 저장한 영상입니다.':editing?'영상 정보를 수정했습니다.':'나중에 볼 영상을 저장했습니다.');
+  replaceClip(result.clip);synced();render();$('#clip-dialog').close();toast(result.restored?'보관 기록에서 복원했습니다.':result.duplicate?'이미 저장한 영상입니다.':editing?'영상 정보를 수정했습니다.':'나중에 볼 영상을 저장했습니다.');
  }catch(error){$('#clip-error').textContent=error.message;$('#clip-error').hidden=false;}finally{setBusy(false);}
 });
 $('#confirm-delete').addEventListener('click',async()=>{
  if(!state.deleting||state.busy)return;const clip=state.deleting;setBusy(true);
- try{await state.api.request('delete',{id:clip.id,expectedUpdatedAt:clip.updatedAt});state.clips=state.clips.filter(c=>c.id!==clip.id);state.deleting=null;synced();render();$('#delete-dialog').close();toast('영상을 삭제했습니다.');}
+ try{const result=await state.api.request('archive',{id:clip.id,expectedUpdatedAt:clip.updatedAt});replaceClip(result.clip);state.deleting=null;synced();render();$('#delete-dialog').close();toast('보관 기록으로 옮겼습니다. 언제든 복원할 수 있습니다.');}
  catch(error){$('#delete-error').textContent=error.message;$('#delete-error').hidden=false;}finally{setBusy(false);}
 });
 $('#search').addEventListener('input',render);$('#platform').addEventListener('change',render);
@@ -155,7 +164,12 @@ $('#reclassify-clip').addEventListener('click',async()=>{
 });
 $('#settings-button').addEventListener('click',openSettings);$('#connect-button').addEventListener('click',openSettings);
 $('#add-button').addEventListener('click',openAdd);$('#disconnect-button').addEventListener('click',disconnect);
-$('#refresh-button').addEventListener('click',refresh);$('#retry-button').addEventListener('click',refresh);
+$('#refresh-button').addEventListener('click',refresh);$('#retry-button').addEventListener('click',()=>{
+ if(state.api){refresh();return;}
+ const previous=session.read();
+ if(previous?.endpoint&&previous?.token)connect(previous.endpoint,previous.token,true).catch(setError);
+ else openSettings();
+});
 for(const id of ['help-button','welcome-help'])document.getElementById(id).addEventListener('click',()=>$('#help-dialog').showModal());
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();}));
 document.addEventListener('keydown',event=>{
@@ -166,5 +180,5 @@ setInterval(()=>{if(!document.hidden)refresh();},60000);
 render();
 try{
  const previous=session.read();
- if(previous?.endpoint&&previous?.token){$('#remember-session').checked=true;connect(previous.endpoint,previous.token,true).catch(error=>{session.write(null);setError(error);});}
-}catch{session.write(null);}
+ if(previous?.endpoint&&previous?.token){$('#remember-session').checked=true;connect(previous.endpoint,previous.token,true).catch(setError);}
+}catch(error){setError(error);}
