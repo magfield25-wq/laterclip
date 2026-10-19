@@ -114,7 +114,7 @@ function doPost(e) {
       }
       if (request.action === 'refreshMetadata') {
         const meta = metadata_(clip.url);
-        if (!meta.title && !meta.thumbnailURL) return json_({ok:false,error:'공개된 제목과 이미지를 가져오지 못했습니다. 로그인 또는 공개 범위 제한이 있을 수 있습니다.'});
+        if (!meta.title && !meta.thumbnailURL) return json_({ok:false,error:'공개된 제목과 이미지를 가져오지 못했습니다.'+(meta.diagnostic ? ' ('+meta.diagnostic+')' : ' 로그인 또는 공개 범위 제한이 있을 수 있습니다.')});
         if ((!clip.title || clip.title === '제목 없는 영상') && meta.title) {
           clip.title = meta.title;
           if (clip.category === '미분류') clip.category = classifyAI_(meta.title,false,clips.map(c=>c.category));
@@ -195,24 +195,32 @@ function htmlText_(text) {
   return String(text || '').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):parseInt(n,10);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';})
     .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&amp;/gi,'&');
 }
+function facebookMetadataTarget_(url) {
+  // Mobile shares redirect to a reel URL carrying transient share/session parameters.
+  // For numeric reel URLs, metadata belongs to the stable public URL.
+  const match = String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/reel\/(\d+)\/?(?:[?#].*)?$/i);
+  return match ? 'https://www.facebook.com/reel/'+match[1]+'/' : url;
+}
 function facebookMetadata_(url) {
   const meta = {title:'',thumbnailURL:''};
   if (!facebookURL_(url)) return meta;
   try {
-    let target = url, response;
+    let target = facebookMetadataTarget_(url), response;
     for (let i=0;i<4;i++) {
       if (!facebookURL_(target)) return meta;
       response = UrlFetchApp.fetch(target,{muteHttpExceptions:true,followRedirects:false,headers:{'User-Agent':'Mozilla/5.0'}});
       const status = response.getResponseCode();
+      meta.diagnostic='Facebook 응답 '+status;
       if (status>=300 && status<400) {
         const headers = response.getHeaders();
         let location = String(headers.Location || headers.location || '');
         if (/^\/(?!\/)/.test(location)) location=target.match(/^https:\/\/[^/]+/)[0]+location;
-        if (!facebookURL_(location)) return meta;
-        target=location; continue;
+        if (!facebookURL_(location)) {meta.diagnostic='Facebook 외부 로그인·이동 주소';return meta;}
+        target=facebookMetadataTarget_(location); continue;
       }
       if (status !== 200) return meta;
       const html = response.getContentText().slice(0,2000000);
+      meta.diagnostic='Facebook 공개 정보 없음 (응답 200)';
       const values = {};
       for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
         const attrs = {};
@@ -226,7 +234,7 @@ function facebookMetadata_(url) {
       if (/^https:\/\/(?:[a-z0-9-]+\.)*fbcdn\.net\//i.test(image)) meta.thumbnailURL=image.slice(0,4096);
       return meta;
     }
-  } catch (_) { /* Public metadata restrictions must not prevent saving. */ }
+  } catch (_) { meta.diagnostic='Facebook 요청 실패: '+String(_.message || '').slice(0,180); /* Public metadata restrictions must not prevent saving. */ }
   return meta;
 }
 function checkGeminiConnection() {
