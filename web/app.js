@@ -45,10 +45,10 @@ function visibleClips(){
 }
 function render(){
  renderCategories();
- $('#section-title').textContent=state.section;
+ $('#section-title').textContent=state.api?state.section:'보관함 연결이 필요합니다';
  const clips=visibleClips();
- $('#subtitle').textContent=state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'마음에 든 영상을 모아두세요.';
- $('[data-total]').textContent=state.clips.length;$('[data-unwatched]').textContent=state.clips.filter(c=>!c.watched).length;$('[data-watched]').textContent=state.clips.filter(c=>c.watched).length;
+ $('#subtitle').textContent=state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'아직 영상 수를 조회하지 않았습니다. 내 보관함을 연결해 주세요.';
+ $('[data-total]').textContent=state.api?state.clips.length:'—';$('[data-unwatched]').textContent=state.api?state.clips.filter(c=>!c.watched).length:'—';$('[data-watched]').textContent=state.api?state.clips.filter(c=>c.watched).length:'—';
  document.querySelectorAll('[data-section]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.section===state.section)));
  document.querySelectorAll('[data-category-count]').forEach(b=>b.textContent=state.clips.filter(c=>c.category===b.dataset.categoryCount).length);
  $('#welcome').hidden=!!state.api;$('#empty').hidden=!state.api||clips.length>0;
