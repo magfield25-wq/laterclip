@@ -57,7 +57,7 @@ function render(){
   const thumb=card.querySelector('.thumbnail');
   if(url){title.href=url;thumb.href=url;}else{title.removeAttribute('href');thumb.removeAttribute('href');}
   const image=card.querySelector('img');const imageURL=thumbnailURL(clip);
-  if(imageURL){image.addEventListener('load',()=>{image.hidden=false;});image.addEventListener('error',()=>{image.hidden=true;});image.referrerPolicy='no-referrer';image.src=imageURL;}
+  if(imageURL){image.hidden=false;image.style.opacity='0';image.addEventListener('load',()=>{image.style.opacity='1';});image.addEventListener('error',()=>{image.hidden=true;});image.referrerPolicy='no-referrer';image.src=imageURL;}
   card.querySelector('.video-platform').textContent=clip.platform||'Web';card.querySelector('.category-pill').textContent=clip.category||'미분류';
   const note=card.querySelector('.video-note');note.hidden=!clip.note;note.textContent=clip.note;
   const date=new Date(clip.savedAt);card.querySelector('.video-date').textContent=`${clip.device||'Web'} · ${Number.isNaN(date.getTime())?'날짜 없음':date.toLocaleDateString('ko-KR',{month:'short',day:'numeric'})}`;
