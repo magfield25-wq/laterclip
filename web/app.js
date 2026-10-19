@@ -1,5 +1,5 @@
 import {config} from './config.js';
-import {ClipAPI,validEndpoint} from './api.js';
+import {ClipAPI,validEndpoint} from './api.js?v=20261019-direct1';
 import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
 
 const $=selector=>document.querySelector(selector);
