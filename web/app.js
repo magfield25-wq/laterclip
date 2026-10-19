@@ -1,6 +1,6 @@
 import {config} from './config.js';
 import {ClipAPI,validEndpoint} from './api.js';
-import {thumbnailURL} from './thumbnail.js';
+import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
 
 const $=selector=>document.querySelector(selector);
 const categories=[['요리','♧'],['여행','✈'],['운동','↟'],['배움','▤'],['테크','▣'],['즐길 거리','♫'],['미분류','▧']];
@@ -126,6 +126,17 @@ $('#confirm-delete').addEventListener('click',async()=>{
  catch(error){$('#delete-error').textContent=error.message;$('#delete-error').hidden=false;}finally{setBusy(false);}
 });
 $('#search').addEventListener('input',render);$('#platform').addEventListener('change',render);
+$('#refresh-metadata').addEventListener('click',async()=>{
+ if(!state.editing||state.busy)return;
+ const clip=state.editing;setBusy(true);$('#clip-error').hidden=true;
+ try{
+  const result=await state.api.request('refreshMetadata',{id:clip.id,expectedUpdatedAt:clip.updatedAt});
+  state.editing=result.clip;state.clips=state.clips.map(c=>c.id===clip.id?result.clip:c);
+  $('#clip-title').value=result.clip.title;$('#clip-category').value=result.clip.category;
+  synced();render();toast('영상 정보를 갱신했습니다.');
+ }catch(error){$('#clip-error').textContent=error.message;$('#clip-error').hidden=false;}
+ finally{setBusy(false);}
+});
 $('#settings-button').addEventListener('click',openSettings);$('#connect-button').addEventListener('click',openSettings);
 $('#add-button').addEventListener('click',openAdd);$('#disconnect-button').addEventListener('click',disconnect);
 $('#refresh-button').addEventListener('click',refresh);$('#retry-button').addEventListener('click',refresh);

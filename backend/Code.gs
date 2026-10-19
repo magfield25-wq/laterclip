@@ -76,7 +76,7 @@ function doPost(e) {
       SpreadsheetApp.flush();
       return json_({ok:true,clip,duplicate:false});
     }
-    if (request.action === 'update' || request.action === 'delete') {
+    if (request.action === 'update' || request.action === 'delete' || request.action === 'refreshMetadata') {
       const index = rows.findIndex((r,i) => i > 0 && r[0] === request.id);
       if (index < 1) throw new Error('영상을 찾지 못했습니다. 새로고침해 주세요.');
       const clip = record_(rows[index]);
@@ -84,6 +84,18 @@ function doPost(e) {
         return json_({ok:false,error:'다른 곳에서 수정된 항목입니다. 새로고침 후 다시 시도해 주세요.',conflict:true});
       }
       if (request.action === 'delete') { sheet.deleteRow(index+1); return json_({ok:true}); }
+      if (request.action === 'refreshMetadata') {
+        const meta = metadata_(clip.url);
+        if (!meta.title && !meta.thumbnailURL) return json_({ok:false,error:'공개된 제목과 이미지를 가져오지 못했습니다. 로그인 또는 공개 범위 제한이 있을 수 있습니다.'});
+        if ((!clip.title || clip.title === '제목 없는 영상') && meta.title) {
+          clip.title = meta.title;
+          if (clip.category === '미분류') clip.category = classifyAI_(meta.title);
+        }
+        if (meta.thumbnailURL) clip.thumbnailURL = meta.thumbnailURL;
+        clip.updatedAt = new Date(Math.max(Date.now(), Date.parse(clip.updatedAt)+1 || 0)).toISOString();
+        sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h => safeCell_(clip[h]))]);
+        SpreadsheetApp.flush(); return json_({ok:true,clip});
+      }
       const patch = request.patch || {};
       if ('category' in patch) {
         if (!CATEGORIES.includes(patch.category)) throw new Error('지원하지 않는 카테고리입니다.');
@@ -135,6 +147,7 @@ function platform_(url) {
   return 'Web';
 }
 function metadata_(url) {
+  if (facebookURL_(url)) return facebookMetadata_(url);
   const id = youtubeID_(url);
   const meta = {title:'',thumbnailURL:id ? 'https://i.ytimg.com/vi/'+id+'/hqdefault.jpg' : ''};
   if (!id) return meta;
@@ -143,6 +156,47 @@ function metadata_(url) {
     const response = UrlFetchApp.fetch('https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url), {muteHttpExceptions:true});
     if (response.getResponseCode() === 200) meta.title = bounded_(JSON.parse(response.getContentText()).title,300);
   } catch (_) { /* A metadata failure must not prevent saving the link. */ }
+  return meta;
+}
+function facebookURL_(url) {
+  return /^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com|fb\.watch)\/[^\s]*$/i.test(String(url || ''));
+}
+function htmlText_(text) {
+  return String(text || '').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):parseInt(n,10);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';})
+    .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&amp;/gi,'&');
+}
+function facebookMetadata_(url) {
+  const meta = {title:'',thumbnailURL:''};
+  if (!facebookURL_(url)) return meta;
+  try {
+    let target = url, response;
+    for (let i=0;i<4;i++) {
+      if (!facebookURL_(target)) return meta;
+      response = UrlFetchApp.fetch(target,{muteHttpExceptions:true,followRedirects:false,headers:{'User-Agent':'Mozilla/5.0'}});
+      const status = response.getResponseCode();
+      if (status>=300 && status<400) {
+        const headers = response.getHeaders();
+        let location = String(headers.Location || headers.location || '');
+        if (/^\/(?!\/)/.test(location)) location=target.match(/^https:\/\/[^/]+/)[0]+location;
+        if (!facebookURL_(location)) return meta;
+        target=location; continue;
+      }
+      if (status !== 200) return meta;
+      const html = response.getContentText().slice(0,2000000);
+      const values = {};
+      for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
+        const attrs = {};
+        tag.replace(/([\w:-]+)\s*=\s*(["'])([\s\S]*?)\2/g,(_,name,q,value)=>{attrs[name.toLowerCase()]=value;return '';});
+        const name = (attrs.property || attrs.name || '').toLowerCase();
+        if (name && attrs.content && !values[name]) values[name]=htmlText_(attrs.content);
+      }
+      const title = (values['og:title'] || values['twitter:title'] || '').replace(/^[^|]{0,100}\bviews?\b[^|]*\|\s*/i,'').trim();
+      if (title && !/^(?:Facebook|Log in to Facebook|Facebook에 로그인)$/i.test(title)) meta.title=bounded_(title,300);
+      const image = values['og:image'] || values['twitter:image'] || '';
+      if (/^https:\/\/(?:[a-z0-9-]+\.)*fbcdn\.net\//i.test(image)) meta.thumbnailURL=image.slice(0,4096);
+      return meta;
+    }
+  } catch (_) { /* Public metadata restrictions must not prevent saving. */ }
   return meta;
 }
 function checkGeminiConnection() {

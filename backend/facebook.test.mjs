@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+let mode='normal',requests=[];
+const ctx=vm.createContext({UrlFetchApp:{fetch:(url,options)=>{
+ requests.push(url);assert.equal(options.followRedirects,false);
+ if(mode==='redirect')return {getResponseCode:()=>302,getHeaders:()=>({Location:'https://attacker.example/private'})};
+ if(mode==='blocked')throw Error('blocked');
+ return {getResponseCode:()=>200,getContentText:()=>'<meta content="16K views &#xb7; 233 reactions | Honda CT70 &amp; classic bike" property="og:title"><meta property="og:image" content="https://scontent.example.fbcdn.net/photo.jpg?a=1&amp;b=2">'};
+}}});
+vm.runInContext(fs.readFileSync(new URL('./Code.gs',import.meta.url),'utf8'),ctx);
+let meta=ctx.metadata_('https://www.facebook.com/reel/123');
+assert.equal(meta.title,'Honda CT70 & classic bike');
+assert.equal(meta.thumbnailURL,'https://scontent.example.fbcdn.net/photo.jpg?a=1&b=2');
+assert.equal(ctx.facebookURL_('https://facebook.com.attacker.example/reel/1'),false);
+assert.equal(ctx.facebookURL_('https://facebook.com@attacker.example/reel/1'),false);
+assert.equal(ctx.facebookURL_('https://facebook.com:443/reel/1'),false);
+mode='redirect';requests=[];assert.equal(ctx.metadata_('https://www.facebook.com/reel/123').title,'');assert.equal(requests.length,1);
+mode='blocked';assert.equal(ctx.metadata_('https://www.facebook.com/reel/123').thumbnailURL,'');
+console.log('PASS: public Facebook metadata, HTML entities, reversed attributes, redirect allowlist, access failure');
