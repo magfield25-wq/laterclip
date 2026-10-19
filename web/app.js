@@ -1,5 +1,6 @@
 import {config} from './config.js';
 import {ClipAPI,validEndpoint} from './api.js';
+import {thumbnailURL} from './thumbnail.js';
 
 const $=selector=>document.querySelector(selector);
 const categories=[['요리','♧'],['여행','✈'],['운동','↟'],['배움','▤'],['테크','▣'],['즐길 거리','♫'],['미분류','▧']];
@@ -55,8 +56,7 @@ function render(){
   const title=card.querySelector('.video-title');title.textContent=clip.title||'제목 없는 영상';
   const thumb=card.querySelector('.thumbnail');
   if(url){title.href=url;thumb.href=url;}else{title.removeAttribute('href');thumb.removeAttribute('href');}
-  const image=card.querySelector('img');let imageURL;
-  try{const u=new URL(clip.thumbnailURL);if(u.protocol==='https:'&&u.hostname==='i.ytimg.com'&&/^\/vi\/[A-Za-z0-9_-]{11}\//.test(u.pathname))imageURL=u.href;}catch{}
+  const image=card.querySelector('img');const imageURL=thumbnailURL(clip);
   if(imageURL){image.addEventListener('load',()=>{image.hidden=false;});image.addEventListener('error',()=>{image.hidden=true;});image.referrerPolicy='no-referrer';image.src=imageURL;}
   card.querySelector('.video-platform').textContent=clip.platform||'Web';card.querySelector('.category-pill').textContent=clip.category||'미분류';
   const note=card.querySelector('.video-note');note.hidden=!clip.note;note.textContent=clip.note;
