@@ -39,6 +39,8 @@
 공식 참고: [Web Apps](https://developers.google.com/apps-script/guides/web), [Deployments](https://developers.google.com/apps-script/concepts/deployments).
 # Gemini 자동 분류
 
+카테고리는 고정 목록이 아닙니다. AI가 저장된 카테고리 이름을 우선 재사용하고 맞는 이름이 없으면 짧은 새 이름을 만듭니다. 웹 화면의 카테고리 목록은 실제 영상 데이터로 구성됩니다. 수정 화면에서는 기존 이름을 선택하거나 새 이름을 직접 입력할 수 있고, AI로 다시 분류를 실행할 수도 있습니다. 다시 분류는 해당 항목의 카테고리를 즉시 저장하며, 자동 동기화가 수동 분류를 덮어쓰지는 않습니다.
+
 Script properties에 `GEMINI_API_KEY`를 추가하면 새 영상 저장 시 제목을 Gemini에 보내 카테고리를 선택합니다. 키를 GitHub, 시트, 단축어, 웹사이트 설정에 넣지 마세요. `checkGeminiConnection`을 편집기에서 한 번 실행하면 사용 가능한 Flash 모델을 확인하고 연결을 검사합니다. 모델은 `GEMINI_MODEL`에 저장됩니다.
 
 영상 전체나 자막을 분석하는 기능은 아닙니다. 제목만으로 판단하기 어려우면 미분류가 될 수 있습니다. API 제한이나 오류가 발생하면 기존 키워드 분류로 저장을 계속하며, 수동으로 선택한 카테고리는 자동으로 덮어쓰지 않습니다. 이미 저장된 영상은 자동 변경하지 않습니다. 카드의 수정에서 카테고리를 바꿀 수 있습니다.

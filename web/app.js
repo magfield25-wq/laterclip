@@ -3,7 +3,8 @@ import {ClipAPI,validEndpoint} from './api.js';
 import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
 
 const $=selector=>document.querySelector(selector);
-const categories=[['요리','♧'],['여행','✈'],['운동','↟'],['배움','▤'],['테크','▣'],['즐길 거리','♫'],['미분류','▧']];
+const categoryIcons={'요리':'♧','여행':'✈','운동':'↟','배움':'▤','테크':'▣','즐길 거리':'♫','미분류':'▧'};
+const librarySections=['전체 영상','아직 안 본 영상','시청 완료'];
 const state={clips:[],api:null,busy:false,section:'아직 안 본 영상',editing:null,deleting:null,syncedAt:null};
 const sessionKey='laterclip.connection.v1';
 const session={
@@ -11,20 +12,24 @@ const session={
  write(value){try{if(value)sessionStorage.setItem(sessionKey,JSON.stringify(value));else sessionStorage.removeItem(sessionKey);}catch{/* Safari may restrict storage. The in-memory connection still works. */}}
 };
 let toastTimer;
-$('#categories').replaceChildren(...categories.map(([name,icon])=>{
- const button=document.createElement('button');button.dataset.section=name;button.setAttribute('aria-pressed','false');
- const symbol=document.createElement('span');symbol.textContent=icon;
- const label=document.createTextNode(name);const count=document.createElement('b');count.dataset.categoryCount=name;count.textContent='0';
- button.append(symbol,label,count);return button;
-}));
-$('#clip-category').replaceChildren(...categories.map(([name])=>{const option=document.createElement('option');option.textContent=name;return option;}));
+function renderCategories(){
+ const names=[...new Set(state.clips.map(c=>c.category||'미분류'))].sort((a,b)=>a==='미분류'?1:b==='미분류'?-1:a.localeCompare(b,'ko'));
+ $('#categories').replaceChildren(...names.map(name=>{
+  const button=document.createElement('button');button.dataset.section=name;button.setAttribute('aria-pressed',String(state.section===name));
+  const symbol=document.createElement('span');symbol.textContent=categoryIcons[name]||'▦';
+  const label=document.createTextNode(name);const count=document.createElement('b');count.textContent=state.clips.filter(c=>(c.category||'미분류')===name).length;
+  button.append(symbol,label,count);return button;
+ }));
+ $('#category-options').replaceChildren(...names.map(name=>{const option=document.createElement('option');option.value=name;return option;}));
+ if(!librarySections.includes(state.section)&&!names.includes(state.section))state.section='전체 영상';
+}
 
 function safeURL(value) {try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&u.hostname?u.href:null;}catch{return null;}}
 function setError(error){$('#error-text').textContent=error?.message||String(error);$('#error-banner').hidden=false;$('#sync-dot').className='status-dot error';$('#sync-status').textContent='연결 실패 · 마지막으로 불러온 목록을 표시합니다';}
 function clearError(){$('#error-banner').hidden=true;}
 function toast(text){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4200);}
 function setBusy(busy){state.busy=busy;$('#grid').setAttribute('aria-busy',String(busy));
- for(const selector of ['#add-button','#refresh-button','#save-clip','#confirm-delete','#save-settings'])$(selector).disabled=busy||(!state.api&&['#add-button','#refresh-button'].includes(selector));
+ for(const selector of ['#add-button','#refresh-button','#save-clip','#confirm-delete','#save-settings','#refresh-metadata','#reclassify-clip'])$(selector).disabled=busy||(!state.api&&['#add-button','#refresh-button'].includes(selector));
  $('#save-clip').textContent=busy?'저장 중…':'저장';$('#save-settings').textContent=busy?'연결 중…':'연결 확인';
  $('#grid').querySelectorAll('button').forEach(b=>b.disabled=busy);
  if(busy){$('#sync-status').textContent='Google Sheets와 연결 중…';$('#sync-dot').className='status-dot busy';}
@@ -36,9 +41,10 @@ function setBusy(busy){state.busy=busy;$('#grid').setAttribute('aria-busy',Strin
 function synced(){state.syncedAt=new Date();clearError();$('#sync-status').textContent=`Google Sheets · ${state.syncedAt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 동기화`;$('#sync-dot').className='status-dot';}
 function visibleClips(){
  const query=$('#search').value.trim().toLocaleLowerCase(),platform=$('#platform').value;
- return state.clips.filter(c=>(state.section!=='아직 안 본 영상'||!c.watched)&&(state.section!=='시청 완료'||c.watched)&&(!categories.some(([n])=>n===state.section)||c.category===state.section)&&(!platform||c.platform===platform)&&(!query||`${c.title} ${c.url} ${c.note}`.toLocaleLowerCase().includes(query)));
+ return state.clips.filter(c=>(state.section!=='아직 안 본 영상'||!c.watched)&&(state.section!=='시청 완료'||c.watched)&&(librarySections.includes(state.section)||(c.category||'미분류')===state.section)&&(!platform||c.platform===platform)&&(!query||`${c.title} ${c.url} ${c.note}`.toLocaleLowerCase().includes(query)));
 }
 function render(){
+ renderCategories();
  $('#section-title').textContent=state.section;
  const clips=visibleClips();
  $('#subtitle').textContent=state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'마음에 든 영상을 모아두세요.';
@@ -134,6 +140,16 @@ $('#refresh-metadata').addEventListener('click',async()=>{
   state.editing=result.clip;state.clips=state.clips.map(c=>c.id===clip.id?result.clip:c);
   $('#clip-title').value=result.clip.title;$('#clip-category').value=result.clip.category;
   synced();render();toast('영상 정보를 갱신했습니다.');
+ }catch(error){$('#clip-error').textContent=error.message;$('#clip-error').hidden=false;}
+ finally{setBusy(false);}
+});
+$('#reclassify-clip').addEventListener('click',async()=>{
+ if(!state.editing||state.busy)return;
+ const clip=state.editing;setBusy(true);$('#clip-error').hidden=true;
+ try{
+  const result=await state.api.request('reclassify',{id:clip.id,expectedUpdatedAt:clip.updatedAt});
+  state.editing=result.clip;replaceClip(result.clip);$('#clip-category').value=result.clip.category;
+  synced();render();toast(`카테고리를 ${result.clip.category}(으)로 저장했습니다.`);
  }catch(error){$('#clip-error').textContent=error.message;$('#clip-error').hidden=false;}
  finally{setBusy(false);}
 });

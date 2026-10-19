@@ -6,7 +6,7 @@
 <title>LaterClip · 나중에 볼 영상</title>
 <link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./style.css">
-<script type="module" src="./app.js?v=20261018-facebook1"></script>
+<script type="module" src="./app.js?v=20261018-dynamic1"></script>
 </head><body>
 <a class="skip" href="#main">영상 목록으로 건너뛰기</a>
 <div class="app-shell">
@@ -45,9 +45,9 @@
  <div class="dialog-heading"><h2 id="clip-dialog-title">나중에 볼 영상 저장</h2><button type="button" class="icon-button" data-close="clip-dialog" aria-label="닫기">×</button></div>
  <div id="url-field"><label for="clip-url">영상 링크</label><input id="clip-url" type="url" placeholder="https://…" required spellcheck="false"></div>
  <label for="clip-title">제목 <span class="optional">선택</span></label><input id="clip-title" maxlength="300" placeholder="YouTube 제목은 가능한 경우 자동으로 가져옵니다.">
- <div id="edit-fields" hidden><label for="clip-category">카테고리</label><select id="clip-category"></select><label class="check"><input id="clip-watched" type="checkbox">시청 완료</label><button id="refresh-metadata" type="button" class="secondary">제목·썸네일 다시 가져오기</button></div>
+ <div id="edit-fields" hidden><label for="clip-category">카테고리</label><input id="clip-category" list="category-options" maxlength="24" placeholder="기존 카테고리 선택 또는 새 이름 입력"><datalist id="category-options"></datalist><button id="reclassify-clip" type="button" class="secondary">AI로 다시 분류</button><label class="check"><input id="clip-watched" type="checkbox">시청 완료</label><button id="refresh-metadata" type="button" class="secondary">제목·썸네일 다시 가져오기</button></div>
  <label for="clip-note">메모 <span class="optional">선택</span></label><textarea id="clip-note" rows="3" maxlength="2000" placeholder="다음에 볼 때 기억하고 싶은 것"></textarea>
- <p class="field-note" id="classify-note">제목의 키워드로 분류합니다. 제목을 알 수 없으면 미분류로 저장합니다.</p>
+ <p class="field-note" id="classify-note">제목을 바탕으로 자동 분류하고, 맞는 카테고리가 없으면 새로 만듭니다. 결과는 수정할 수 있습니다.</p>
  <p id="clip-error" class="form-error" role="alert" hidden></p>
  <div class="dialog-actions"><button type="button" class="secondary" data-close="clip-dialog">취소</button><button class="primary" id="save-clip">저장</button></div>
 </form></dialog>
