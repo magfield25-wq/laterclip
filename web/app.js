@@ -1,3 +1,4 @@
+import {createConnectionStore} from './connection-store.js?v=20261020-remember1';
 import {config} from './config.js';
 import {ClipAPI,validEndpoint} from './api.js?v=20261019-direct1';
 import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
@@ -6,11 +7,7 @@ const $=selector=>document.querySelector(selector);
 const categoryIcons={'요리':'♧','여행':'✈','운동':'↟','배움':'▤','테크':'▣','즐길 거리':'♫','미분류':'▧'};
 const librarySections=['전체 영상','아직 안 본 영상','시청 완료','보관 기록'];
 const state={clips:[],api:null,busy:false,section:'아직 안 본 영상',editing:null,deleting:null,syncedAt:null};
-const sessionKey='laterclip.connection.v1';
-const session={
- read(){try{return JSON.parse(sessionStorage.getItem(sessionKey)||'null');}catch{return null;}},
- write(value){try{if(value)sessionStorage.setItem(sessionKey,JSON.stringify(value));else sessionStorage.removeItem(sessionKey);}catch{/* Safari may restrict storage. The in-memory connection still works. */}}
-};
+const session=createConnectionStore(()=>localStorage,()=>sessionStorage);
 let toastTimer;
 function renderCategories(){
  const active=state.clips.filter(c=>!c.archivedAt);
@@ -84,7 +81,7 @@ async function refresh(){
  try{const result=await state.api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));synced();render();}
  catch(error){setError(error);}finally{setBusy(false);}
 }
-function openSettings(){if(state.busy)return;$('#settings-error').hidden=true;$('#endpoint').value=state.api?.endpoint||config.apiURL||'';$('#token').value='';$('#settings-dialog').showModal();}
+function openSettings(){if(state.busy)return;$('#settings-error').hidden=true;$('#endpoint').value=state.api?.endpoint||config.apiURL||'';$('#token').value='';$('#token').required=!state.api;$('#token').placeholder=state.api?'기존 키를 그대로 쓰려면 비워두세요':'본인 Apps Script에서 발급한 키';$('#remember-session').checked=Boolean(session.read()?.remember);$('#settings-dialog').showModal();}
 function openAdd(){if(!state.api||state.busy)return;state.editing=null;$('#clip-form').reset();$('#clip-error').hidden=true;$('#clip-dialog-title').textContent='나중에 볼 영상 저장';$('#edit-fields').hidden=true;$('#url-field').hidden=false;$('#clip-url').required=true;$('#classify-note').hidden=false;$('#clip-dialog').showModal();}
 function openEdit(clip){state.editing=clip;$('#clip-error').hidden=true;$('#clip-dialog-title').textContent='영상 정보 수정';$('#edit-fields').hidden=false;$('#url-field').hidden=true;$('#clip-url').required=false;$('#clip-title').value=clip.title;$('#clip-note').value=clip.note||'';$('#clip-category').value=clip.category;$('#clip-watched').checked=clip.watched;$('#classify-note').hidden=true;$('#clip-dialog').showModal();}
 function replaceClip(clip){const i=state.clips.findIndex(c=>c.id===clip.id);if(i>=0)state.clips[i]=clip;else state.clips.unshift(clip);}
@@ -93,8 +90,8 @@ async function connect(endpoint,token,remember){
  try{
   const result=await api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');
   state.api?.close();state.api=api;state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));state.section='아직 안 본 영상';
-  session.write(remember?{endpoint,token}:null);
-  $('#token').value='';synced();render();return true;
+  const stored=remember===undefined?true:session.write(remember?{endpoint,token}:null);
+  $('#token').value='';synced();render();return stored;
  }catch(error){api.close();throw error;}finally{setBusy(false);}
 }
 function disconnect(){if(state.busy)return;state.api?.close();state.api=null;state.clips=[];state.syncedAt=null;session.write(null);$('#token').value='';$('#remember-session').checked=false;clearError();$('#sync-dot').className='status-dot disconnected';$('#sync-status').textContent='연결 전';render();$('#settings-dialog').close();toast('이 기기의 보관함 연결을 해제했습니다.');}
@@ -118,9 +115,9 @@ document.addEventListener('click',event=>{
 });
 $('#settings-form').addEventListener('submit',async event=>{
  event.preventDefault();if(state.busy)return;$('#settings-error').hidden=true;
- const endpoint=validEndpoint($('#endpoint').value.trim()),token=$('#token').value.trim();
+ const endpoint=validEndpoint($('#endpoint').value.trim()),token=$('#token').value.trim()||(state.api?.endpoint===endpoint?state.api.token:'');
  if(!endpoint||token.length<32){$('#settings-error').textContent='연결 주소와 32자 이상의 개인 키를 확인해 주세요.';$('#settings-error').hidden=false;return;}
- try{await connect(endpoint,token,$('#remember-session').checked);$('#settings-dialog').close();toast('내 보관함을 연결했습니다.');}
+ try{const remember=$('#remember-session').checked;const stored=await connect(endpoint,token,remember);$('#settings-dialog').close();toast(!stored?'연결은 됐지만 브라우저에 키를 저장하지 못했습니다.':remember?'이 브라우저에 연결을 기억했습니다.':'내 보관함을 연결했습니다.');}
  catch(error){$('#settings-error').textContent=error.message;$('#settings-error').hidden=false;}
 });
 $('#clip-form').addEventListener('submit',async event=>{
@@ -167,7 +164,7 @@ $('#add-button').addEventListener('click',openAdd);$('#disconnect-button').addEv
 $('#refresh-button').addEventListener('click',refresh);$('#retry-button').addEventListener('click',()=>{
  if(state.api){refresh();return;}
  const previous=session.read();
- if(previous?.endpoint&&previous?.token)connect(previous.endpoint,previous.token,true).catch(setError);
+ if(previous?.endpoint&&previous?.token)connect(previous.endpoint,previous.token).catch(setError);
  else openSettings();
 });
 for(const id of ['help-button','welcome-help'])document.getElementById(id).addEventListener('click',()=>$('#help-dialog').showModal());
@@ -180,5 +177,5 @@ setInterval(()=>{if(!document.hidden)refresh();},60000);
 render();
 try{
  const previous=session.read();
- if(previous?.endpoint&&previous?.token){$('#remember-session').checked=true;connect(previous.endpoint,previous.token,true).catch(setError);}
+ if(previous?.endpoint&&previous?.token){$('#remember-session').checked=Boolean(previous.remember);connect(previous.endpoint,previous.token).catch(setError);}
 }catch(error){setError(error);}
