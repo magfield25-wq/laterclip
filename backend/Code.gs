@@ -66,11 +66,19 @@ function doPost(e) {
     }
     if (rows[0][HEADERS.length-1] !== 'archivedAt') throw new Error('보관 기록 열을 확인해 주세요. 기존 데이터는 변경하지 않았습니다.');
     const clips = rows.slice(1).filter(r => r[0]).map(record_);
-    if (request.action === 'list') return json_({ok:true,clips:clips.filter(c=>request.includeArchived===true || !c.archivedAt).reverse()});
+    if (request.action === 'list') {
+      try{retryMissingFacebookMetadata_(clips,rows,sheet);}catch(_){/* Metadata retries must never hide the saved library. */}
+      return json_({ok:true,clips:clips.filter(c=>request.includeArchived===true || !c.archivedAt).reverse()});
+    }
     if (request.action === 'save') {
       const url = normalizeURL_(request.url);
       const duplicate = clips.find(c => normalizeURL_(c.url) === url);
       if (duplicate) {
+        if(needsFacebookMetadata_(duplicate)&&applyFacebookMetadata_(duplicate,clips.map(c=>c.category))){
+          const index=rows.findIndex(r=>r[0]===duplicate.id);
+          sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(duplicate[h]))]);
+          SpreadsheetApp.flush();
+        }
         if (duplicate.archivedAt) {
           duplicate.archivedAt='';
           duplicate.updatedAt=nextRevision_(duplicate);
@@ -195,26 +203,75 @@ function htmlText_(text) {
   return String(text || '').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):parseInt(n,10);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';})
     .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&amp;/gi,'&');
 }
+function facebookMetadata_(url) {
+  // A public page may return an empty app shell on the first request.
+  // Retry once with complete browser content negotiation, never with user cookies.
+  const attempts=[{'User-Agent':'LaterClip/1.0'},
+    {'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15','Accept-Language':'en-US,en;q=0.9'}];
+  const result={title:'',thumbnailURL:''};
+  for (const headers of attempts) {
+    const meta=facebookMetadataAttempt_(url,headers);
+    result.title=result.title||meta.title;result.thumbnailURL=result.thumbnailURL||meta.thumbnailURL;
+    result.diagnostic=meta.diagnostic;
+    if(result.title&&result.thumbnailURL)break;
+    if(meta.diagnostic==='Facebook 외부 로그인·이동 주소'||meta.diagnostic==='Facebook 로그인 필요')break;
+  }
+  return result;
+}
+function needsFacebookMetadata_(clip) {
+  return !clip.archivedAt && clip.platform==='Facebook' &&
+    (!clip.title || clip.title==='제목 없는 영상' || !clip.thumbnailURL);
+}
+function metadataRetryCache_() {try{return CacheService.getScriptCache();}catch(_){return null;}}
+function applyFacebookMetadata_(clip,categories) {
+  const meta=facebookMetadata_(clip.url);let changed=false;
+  clip.metadataStatus=meta.diagnostic==='Facebook 로그인 필요'?'login_required':'pending';
+  if((!clip.title||clip.title==='제목 없는 영상')&&meta.title){
+    clip.title=meta.title;changed=true;
+    if(clip.category==='미분류')clip.category=classifyAI_(meta.title,false,categories);
+  }
+  if(!clip.thumbnailURL&&meta.thumbnailURL){clip.thumbnailURL=meta.thumbnailURL;changed=true;}
+  if(changed)clip.updatedAt=nextRevision_(clip);
+  return changed;
+}
+function retryMissingFacebookMetadata_(clips,rows,sheet) {
+  const cache=metadataRetryCache_();if(!cache)return;
+  // At most one incomplete item per list request and one attempt per item per 15 minutes.
+  const candidate=clips.find(c=>needsFacebookMetadata_(c)&&!cache.get('fb-retry-'+c.id));
+  if(!candidate){for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-'+c.id)||'pending';return;}
+  cache.put('fb-retry-'+candidate.id,'pending',900);
+  if(applyFacebookMetadata_(candidate,clips.map(c=>c.category))){
+    const index=rows.findIndex(r=>r[0]===candidate.id);
+    sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(candidate[h]))]);
+    SpreadsheetApp.flush();
+  }
+  cache.put('fb-retry-'+candidate.id,candidate.metadataStatus||'pending',900);
+  for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-'+c.id)||'pending';
+}
 function facebookMetadataTarget_(url) {
   // Mobile shares redirect to a reel URL carrying transient share/session parameters.
   // For numeric reel URLs, metadata belongs to the stable public URL.
   const match = String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/reel\/(\d+)\/?(?:[?#].*)?$/i);
-  return match ? 'https://www.facebook.com/reel/'+match[1]+'/' : url;
+  if(match)return 'https://www.facebook.com/reel/'+match[1]+'/';
+  const story=String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/story\.php\?([^#]*)/i);
+  if(story){const fbid=story[1].match(/(?:^|&)story_fbid=(\d+)(?:&|$)/),owner=story[1].match(/(?:^|&)id=(\d+)(?:&|$)/);if(fbid&&owner)return 'https://www.facebook.com/story.php?story_fbid='+fbid[1]+'&id='+owner[1];}
+  return url;
 }
-function facebookMetadata_(url) {
+function facebookMetadataAttempt_(url, headers) {
   const meta = {title:'',thumbnailURL:''};
   if (!facebookURL_(url)) return meta;
   try {
     let target = facebookMetadataTarget_(url), response;
     for (let i=0;i<4;i++) {
       if (!facebookURL_(target)) return meta;
-      response = UrlFetchApp.fetch(target,{muteHttpExceptions:true,followRedirects:false,headers:{'User-Agent':'Mozilla/5.0'}});
+      response = UrlFetchApp.fetch(target,{muteHttpExceptions:true,followRedirects:false,headers:headers});
       const status = response.getResponseCode();
       meta.diagnostic='Facebook 응답 '+status;
       if (status>=300 && status<400) {
         const headers = response.getHeaders();
         let location = String(headers.Location || headers.location || '');
         if (/^\/(?!\/)/.test(location)) location=target.match(/^https:\/\/[^/]+/)[0]+location;
+        if (/^https:\/\/[^/]+\/(?:login|checkpoint)(?:[/?]|$)/i.test(location)){meta.diagnostic='Facebook 로그인 필요';return meta;}
         if (!facebookURL_(location)) {meta.diagnostic='Facebook 외부 로그인·이동 주소';return meta;}
         target=facebookMetadataTarget_(location); continue;
       }
