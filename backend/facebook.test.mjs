@@ -42,7 +42,7 @@ meta=ctx.facebookMetadata_('https://www.facebook.com/reel/222/');
 assert.equal(meta.title,'Recovered');assert.ok(meta.thumbnailURL);assert.equal(pass,2);
 let count=0;ctx.UrlFetchApp.fetch=()=>{count++;return {getResponseCode:()=>302,getHeaders:()=>({Location:'https://www.facebook.com/login/?next=public-post'})};};
 meta=ctx.facebookMetadata_('https://www.facebook.com/story.php?story_fbid=123&id=456');
-assert.equal(meta.diagnostic,'Facebook 로그인 필요');assert.equal(count,1); // No login or bypass attempt.
+assert.equal(meta.diagnostic,'Facebook 로그인 필요');assert.equal(count,2); // Two public requests; no login or bypass attempt.
 assert.equal(ctx.facebookMetadataTarget_('https://www.facebook.com/story.php?story_fbid=123&id=456&rdid=temporary'),'https://www.facebook.com/story.php?story_fbid=123&id=456');
 console.log('PASS: bounded retry recovers empty responses; login-required content is detected without following login redirects');
 
@@ -57,3 +57,10 @@ ctx.retryMissingFacebookMetadata_(clips,[['id'],['one']],fakeSheet);assert.equal
 const manual={...clips[0],title:'직접 쓴 제목',category:'직접 분류',thumbnailURL:''};ctx.applyFacebookMetadata_(manual,[]);
 assert.equal(manual.title,'직접 쓴 제목');assert.equal(manual.category,'직접 분류');
 console.log('PASS: list retry persists recovered metadata, avoids repeat fetches, preserves watched/notes/manual edits');
+assert.equal(ctx.facebookMetadataTarget_('https://www.facebook.com/share/r/ABC123/?mibextid=x'),'https://www.facebook.com/share/r/ABC123/');
+// Canonical targets disclosed by a login redirect can still be tried publicly,
+// but the login URL itself is never requested.
+let seen=[];ctx.UrlFetchApp.fetch=url=>{seen.push(url);return url.includes('/share/')?{getResponseCode:()=>302,getHeaders:()=>({Location:'https://www.facebook.com/login/?next='+encodeURIComponent('https://www.facebook.com/reel/333/')})}:{getResponseCode:()=>200,getContentText:()=>'<meta property="og:title" content="Public"><meta property="og:image" content="https://a.fbcdn.net/public.jpg">'};};
+meta=ctx.facebookMetadataAttempt_('https://www.facebook.com/share/r/ABC123/',{});
+assert.equal(meta.title,'Public');assert.equal(seen.some(u=>u.includes('/login/')),false);
+console.log('PASS: tracking removed; only allowed public canonical targets may be followed from a redirect');

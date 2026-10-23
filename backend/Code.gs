@@ -206,7 +206,7 @@ function htmlText_(text) {
 function facebookMetadata_(url) {
   // A public page may return an empty app shell on the first request.
   // Retry once with complete browser content negotiation, never with user cookies.
-  const attempts=[{'User-Agent':'LaterClip/1.0'},
+  const attempts=[{},
     {'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15','Accept-Language':'en-US,en;q=0.9'}];
   const result={title:'',thumbnailURL:''};
   for (const headers of attempts) {
@@ -214,7 +214,7 @@ function facebookMetadata_(url) {
     result.title=result.title||meta.title;result.thumbnailURL=result.thumbnailURL||meta.thumbnailURL;
     result.diagnostic=meta.diagnostic;
     if(result.title&&result.thumbnailURL)break;
-    if(meta.diagnostic==='Facebook 외부 로그인·이동 주소'||meta.diagnostic==='Facebook 로그인 필요')break;
+    if(meta.diagnostic==='Facebook 외부 로그인·이동 주소')break;
   }
   return result;
 }
@@ -237,22 +237,24 @@ function applyFacebookMetadata_(clip,categories) {
 function retryMissingFacebookMetadata_(clips,rows,sheet) {
   const cache=metadataRetryCache_();if(!cache)return;
   // At most one incomplete item per list request and one attempt per item per 15 minutes.
-  const candidate=clips.find(c=>needsFacebookMetadata_(c)&&!cache.get('fb-retry-'+c.id));
-  if(!candidate){for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-'+c.id)||'pending';return;}
-  cache.put('fb-retry-'+candidate.id,'pending',900);
+  const candidate=clips.find(c=>needsFacebookMetadata_(c)&&!cache.get('fb-retry-v2-'+c.id));
+  if(!candidate){for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-v2-'+c.id)||'pending';return;}
+  cache.put('fb-retry-v2-'+candidate.id,'pending',900);
   if(applyFacebookMetadata_(candidate,clips.map(c=>c.category))){
     const index=rows.findIndex(r=>r[0]===candidate.id);
     sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(candidate[h]))]);
     SpreadsheetApp.flush();
   }
-  cache.put('fb-retry-'+candidate.id,candidate.metadataStatus||'pending',900);
-  for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-'+c.id)||'pending';
+  cache.put('fb-retry-v2-'+candidate.id,candidate.metadataStatus||'pending',900);
+  for(const c of clips)if(needsFacebookMetadata_(c))c.metadataStatus=cache.get('fb-retry-v2-'+c.id)||'pending';
 }
 function facebookMetadataTarget_(url) {
   // Mobile shares redirect to a reel URL carrying transient share/session parameters.
   // For numeric reel URLs, metadata belongs to the stable public URL.
   const match = String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/reel\/(\d+)\/?(?:[?#].*)?$/i);
   if(match)return 'https://www.facebook.com/reel/'+match[1]+'/';
+  const share=String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/share\/r\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/i);
+  if(share)return 'https://www.facebook.com/share/r/'+share[1]+'/';
   const story=String(url).match(/^https:\/\/(?:(?:www\.|m\.|mbasic\.)?facebook\.com)\/story\.php\?([^#]*)/i);
   if(story){const fbid=story[1].match(/(?:^|&)story_fbid=(\d+)(?:&|$)/),owner=story[1].match(/(?:^|&)id=(\d+)(?:&|$)/);if(fbid&&owner)return 'https://www.facebook.com/story.php?story_fbid='+fbid[1]+'&id='+owner[1];}
   return url;
@@ -271,7 +273,14 @@ function facebookMetadataAttempt_(url, headers) {
         const headers = response.getHeaders();
         let location = String(headers.Location || headers.location || '');
         if (/^\/(?!\/)/.test(location)) location=target.match(/^https:\/\/[^/]+/)[0]+location;
-        if (/^https:\/\/[^/]+\/(?:login|checkpoint)(?:[/?]|$)/i.test(location)){meta.diagnostic='Facebook 로그인 필요';return meta;}
+        if (/^https:\/\/[^/]+\/(?:login|checkpoint)(?:[/?]|$)/i.test(location)){
+          // A share redirect can reveal a separate public canonical URL in `next`.
+          // Fetch only an allowed numeric public target; never submit a login request.
+          let next='';try{next=decodeURIComponent((location.match(/[?&]next=([^&]+)/)||[])[1]||'');}catch(_){}
+          const canonical=facebookMetadataTarget_(next);
+          if(facebookURL_(canonical)&&canonical!==target&&/^https:\/\/www\.facebook\.com\/(?:reel\/\d+\/|story\.php\?)/.test(canonical)){target=canonical;continue;}
+          meta.diagnostic='Facebook 로그인 필요';return meta;
+        }
         if (!facebookURL_(location)) {meta.diagnostic='Facebook 외부 로그인·이동 주소';return meta;}
         target=facebookMetadataTarget_(location); continue;
       }

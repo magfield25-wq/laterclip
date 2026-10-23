@@ -66,7 +66,7 @@ function render(){
   if(imageURL){image.hidden=false;image.style.opacity='0';image.addEventListener('load',()=>{image.style.opacity='1';});image.addEventListener('error',()=>{image.hidden=true;});image.referrerPolicy='no-referrer';image.src=imageURL;}
   card.querySelector('.video-platform').textContent=clip.platform||'Web';card.querySelector('.category-pill').textContent=clip.category||'미분류';
   const note=card.querySelector('.video-note');note.hidden=!clip.note;note.textContent=clip.note;
-  if(clip.platform==='Facebook'&&(!clip.thumbnailURL||!clip.title||clip.title==='제목 없는 영상')){const status=document.createElement('p');status.className='video-note';status.textContent=clip.metadataStatus==='login_required'?'Facebook 로그인이 필요한 게시물입니다. 제목은 수정에서 직접 입력할 수 있습니다.':'Facebook 영상 정보를 다시 확인하고 있습니다. 정보를 받으면 자동 분류됩니다.';title.after(status);}
+  if(clip.platform==='Facebook'&&(!clip.thumbnailURL||!clip.title||clip.title==='제목 없는 영상')){const status=document.createElement('p');status.className='video-note';status.textContent=clip.metadataStatus==='login_required'?'Facebook이 서버에 로그인 화면을 반환해 정보를 읽지 못했습니다. 제목·분류는 수정에서 입력할 수 있습니다.':'Facebook 영상 정보를 다시 확인하고 있습니다. 정보를 받으면 자동 분류됩니다.';title.after(status);}
   const date=new Date(clip.savedAt);card.querySelector('.video-date').textContent=`${clip.device||'Web'} · ${Number.isNaN(date.getTime())?'날짜 없음':date.toLocaleDateString('ko-KR',{month:'short',day:'numeric'})}`;
   const watch=card.querySelector('.watch-button');watch.textContent=clip.watched?'✓':'○';watch.setAttribute('aria-pressed',String(clip.watched));watch.setAttribute('aria-label',`${clip.title}: ${clip.watched?'미시청':'시청 완료'}으로 변경`);
   watch.hidden=!!clip.archivedAt;card.querySelector('.edit-button').hidden=!!clip.archivedAt;
