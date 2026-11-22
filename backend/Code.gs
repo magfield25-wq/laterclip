@@ -1,5 +1,7 @@
 /* Bound to the private LaterClip spreadsheet. Deploy instructions: SETUP.md. */
 const HEADERS = ['id','savedAt','title','url','platform','category','watched','note','device','updatedAt','thumbnailURL','archivedAt'];
+const AUDIO_CHUNK = 1024 * 1024;
+const AUDIO_LIMIT = 32 * AUDIO_CHUNK;
 const CATEGORIES = ['요리','여행','운동','배움','테크','즐길 거리','미분류'];
 
 // Editor-visible bootstrap. Disabled permanently after its first successful run.
@@ -66,6 +68,26 @@ function doPost(e) {
     }
     if (rows[0][HEADERS.length-1] !== 'archivedAt') throw new Error('보관 기록 열을 확인해 주세요. 기존 데이터는 변경하지 않았습니다.');
     const clips = rows.slice(1).filter(r => r[0]).map(record_);
+    const audioFolder = props.getProperty('AUDIO_FOLDER_ID');
+    if (audioFolder) {
+      const column = HEADERS.length + 1;
+      if (!rows[0][column-1]) {
+        if (sheet.getMaxColumns && sheet.getMaxColumns() < column) {
+          sheet.insertColumnsAfter(column-1,1);
+        }
+        sheet.getRange(1,column,1,1).setValues([['audio']]);
+        SpreadsheetApp.flush();
+      } else if (rows[0][column-1] !== 'audio') {
+        throw new Error('오디오 열을 확인해 주세요.');
+      }
+      const audioByID = new Map(rows.slice(1).map(row=>[row[0],row[column-1]]));
+      for (const clip of clips) {
+        if (clip.platform === 'YouTube') clip.audioStatus = audioState_(audioByID.get(clip.id)).status || 'available';
+      }
+      if (['audioClaim','audioFinish','audioRetry','audioRead'].includes(request.action)) {
+        return audioRequest_(request,sheet,rows,clips,column,audioFolder,lock);
+      }
+    }
     if (request.action === 'list') {
       try{retryMissingFacebookMetadata_(clips,rows,sheet);}catch(_){/* Metadata retries must never hide the saved library. */}
       return json_({ok:true,clips:clips.filter(c=>request.includeArchived===true || !c.archivedAt).reverse()});
@@ -95,14 +117,19 @@ function doPost(e) {
       const clip = {id:Utilities.getUuid(),savedAt:now,title,url,platform:platform_(url),
         category:classifyAI_(title,false,clips.map(c=>c.category)),watched:false,note:bounded_(request.note,2000),
         device:request.device === 'iPhone' ? 'iPhone' : 'Mac',updatedAt:now,thumbnailURL:meta.thumbnailURL,archivedAt:''};
-      sheet.appendRow(HEADERS.map(h => safeCell_(clip[h])));
+      const values = HEADERS.map(h => safeCell_(clip[h]));
+      if (audioFolder && clip.platform === 'YouTube') {
+        clip.audioStatus = 'queued';
+        values.push(JSON.stringify({status:'queued'}));
+      }
+      sheet.appendRow(values);
       SpreadsheetApp.flush();
       return json_({ok:true,clip,duplicate:false});
     }
     if (['update','delete','archive','restore','refreshMetadata','reclassify'].includes(request.action)) {
       const index = rows.findIndex((r,i) => i > 0 && r[0] === request.id);
       if (index < 1) throw new Error('영상을 찾지 못했습니다. 새로고침해 주세요.');
-      const clip = record_(rows[index]);
+      const clip = clips.find(c=>c.id===request.id);
       if (!request.expectedUpdatedAt || request.expectedUpdatedAt !== clip.updatedAt) {
         return json_({ok:false,error:'다른 곳에서 수정된 항목입니다. 새로고침 후 다시 시도해 주세요.',conflict:true});
       }
@@ -153,6 +180,75 @@ function doPost(e) {
     // No request contents or credentials are written to logs.
     return json_({ok:false,error: error instanceof SyntaxError ? '요청 형식을 확인해 주세요.' : String(error.message || '요청에 실패했습니다.')});
   } finally { if (lock && lock.hasLock()) lock.releaseLock(); }
+}
+
+function audioState_(cell) {
+  if (!cell) return {};
+  try {return JSON.parse(cell) || {};} catch (_) {return {status:'failed'};}
+}
+
+function audioRequest_(request,sheet,rows,clips,column,folder,lock) {
+  const now = Date.now();
+  const stateOf = row => audioState_(row[column-1]);
+  const write = (row,state) => {
+    sheet.getRange(rows.indexOf(row)+1,column,1,1).setValues([[JSON.stringify(state)]]);
+    SpreadsheetApp.flush();
+  };
+  if (request.action === 'audioClaim') {
+    const clip = clips.find(c=>!c.archivedAt && youtubeID_(c.url) &&
+      (c.audioStatus === 'queued' || (c.audioStatus === 'processing' &&
+        stateOf(rows.find(r=>r[0]===c.id)).expiresAt <= now)));
+    if (!clip) return json_({ok:true,job:null});
+    const lease = Utilities.getUuid();
+    write(rows.find(r=>r[0]===clip.id),{status:'processing',lease,expiresAt:now+30*60*1000});
+    return json_({ok:true,job:{id:clip.id,videoID:youtubeID_(clip.url),lease,folder}});
+  }
+  const clip = clips.find(c=>c.id===request.id && youtubeID_(c.url));
+  if (!clip) throw new Error('YouTube 북마크를 찾지 못했습니다.');
+  const row = rows.find(r=>r[0]===clip.id);
+  const audio = stateOf(row);
+  if (request.action === 'audioRetry') {
+    if (!clip.archivedAt && ['available','failed'].includes(clip.audioStatus)) {
+      write(row,{status:'queued'});
+      clip.audioStatus = 'queued';
+    }
+    return json_({ok:true,clip});
+  }
+  if (request.action === 'audioFinish') {
+    if (audio.lease !== request.lease || !audio.lease) throw new Error('오디오 작업이 만료되었습니다.');
+    if (audio.status === 'ready' || audio.status === 'failed') return json_({ok:true});
+    if (!request.fileID) {
+      write(row,{status:'failed',lease:audio.lease});
+      return json_({ok:true});
+    }
+    if (!/^[\w-]+$/.test(request.fileID)) throw new Error('Drive 파일 ID가 올바르지 않습니다.');
+    const file = DriveApp.getFileById(request.fileID);
+    const parents = file.getParents();
+    let inFolder = false;
+    while (parents.hasNext()) if (parents.next().getId() === folder) inFolder = true;
+    if (!inFolder || file.isTrashed() || file.getName() !== clip.id+'.mp3' ||
+        file.getMimeType() !== 'audio/mpeg' || file.getSize() < 1 || file.getSize() > AUDIO_LIMIT) {
+      throw new Error('Drive에 저장한 오디오 파일을 확인해 주세요.');
+    }
+    write(row,{status:'ready',lease:audio.lease,fileID:file.getId(),size:file.getSize()});
+    return json_({ok:true});
+  }
+  const offset = request.offset;
+  if (audio.status !== 'ready' || !Number.isSafeInteger(offset) || offset < 0 || offset >= audio.size ||
+      offset % AUDIO_CHUNK !== 0) throw new Error('재생할 오디오 구간을 확인해 주세요.');
+  lock.releaseLock();
+  const end = Math.min(offset+AUDIO_CHUNK,audio.size)-1;
+  const response = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/'+audio.fileID+'?alt=media',{
+    headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken(),Range:'bytes='+offset+'-'+end},
+    muteHttpExceptions:true
+  });
+  const code = response.getResponseCode();
+  if (code !== 206 && !(code === 200 && offset === 0 && end === audio.size-1)) {
+    throw new Error('Drive에서 오디오를 읽지 못했습니다.');
+  }
+  const bytes = response.getContent();
+  if (bytes.length !== end-offset+1) throw new Error('Drive 오디오 파일의 크기가 변경되었습니다.');
+  return json_({ok:true,data:Utilities.base64Encode(bytes),nextOffset:end+1,size:audio.size});
 }
 
 function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }

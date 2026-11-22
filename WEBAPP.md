@@ -17,6 +17,7 @@ iPhone과 Mac의 Safari에서 함께 쓰는 개인 영상 보관함입니다.
 - 제목·링크·메모 검색, 카테고리와 플랫폼 필터
 - 가능한 경우 YouTube 제목과 썸네일 조회, 제목 키워드로 자동 분류
 - YouTube 일반 주소·짧은 주소·Shorts의 동일 영상 중복 저장 방지
+- v2 오디오 설정 후 YouTube 북마크의 MP3 자동 생성, Google Drive 보관 및 웹페이지 재생
 - 앱이 열린 동안 약 60초마다 읽기, 수동 새로고침
 - iPhone 폭과 Mac 화면에 대응하며 시스템의 밝은·어두운 화면을 따릅니다.
 
@@ -31,6 +32,8 @@ AI가 영상 내용을 분석하지 않습니다. Facebook이나 비공개 영�
 5. `shortcuts/SETUP.md`에 따라 iPhone과 Mac의 저장 단축어를 각각 구성합니다.
 
 `Bridge.html`은 Apps Script HTML Service에서만 실행합니다. Pages에서 직접 로드하지 않습니다. 화면은 Google의 연결 프레임과 출처·메시지 채널을 확인한 뒤 통신하며, 데이터 요청마다 서버에서 키를 검사합니다. 브라우저의 교차 출처 응답을 무시하는 `no-cors` 방식이나 비공개 데이터를 전달하는 JSONP는 사용하지 않습니다.
+
+오디오 기능을 켜려면 [v2 YouTube 오디오 설정](backend/SETUP.md#v2-youtube-오디오-설정)을 따릅니다. 변환 작업은 설정한 Mac이나 서버에서 실행합니다.
 
 ## GitHub Pages
 

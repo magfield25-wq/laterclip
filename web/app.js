@@ -9,6 +9,79 @@ const librarySections=['전체 영상','아직 안 본 영상','시청 완료','
 const state={clips:[],api:null,busy:false,section:'아직 안 본 영상',editing:null,deleting:null,syncedAt:null};
 const session=createConnectionStore(()=>localStorage,()=>sessionStorage);
 let toastTimer;
+const audioDialog = $('#audio-dialog');
+const audioPlayer = $('#audio-player');
+let audioLoad = null;
+let audioURL = null;
+
+function clearAudio() {
+ audioLoad = null;
+ audioPlayer.pause();
+ audioPlayer.removeAttribute('src');
+ audioPlayer.load();
+ if (audioURL) URL.revokeObjectURL(audioURL);
+ audioURL = null;
+}
+audioDialog.addEventListener('close',()=>{if (!audioDialog.open) clearAudio();});
+audioPlayer.addEventListener('error',()=>{
+ if (audioURL) $('#audio-status').textContent = '오디오를 재생하지 못했습니다.';
+});
+
+async function openAudio(clip) {
+ clearAudio();
+ const request = {};
+ audioLoad = request;
+ const api = state.api;
+ const status = $('#audio-status');
+ $('#audio-title').textContent = clip.title;
+ audioPlayer.hidden = true;
+ status.textContent = 'Google Drive에서 오디오를 불러오는 중입니다…';
+ audioDialog.showModal();
+ try {
+  const parts = [];
+  let offset = 0;
+  let size;
+  do {
+   const chunk = await api.request('audioRead',{id:clip.id,offset});
+   if (audioLoad !== request || !audioDialog.open) return;
+   size ??= chunk.size;
+   if (!Number.isSafeInteger(size) || size < 1 || size > 32*1024*1024 || chunk.size !== size ||
+       chunk.nextOffset !== Math.min(offset + 1024*1024,size)) {
+    throw Error('오디오 파일을 읽지 못했습니다.');
+   }
+   const bytes = Uint8Array.from(atob(chunk.data),char=>char.charCodeAt(0));
+   if (bytes.length !== chunk.nextOffset-offset) throw Error('오디오 파일을 읽지 못했습니다.');
+   parts.push(bytes);
+   offset = chunk.nextOffset;
+   status.textContent = `오디오 불러오는 중 · ${Math.floor(100*offset/size)}%`;
+  } while (offset < size);
+  audioURL = URL.createObjectURL(new Blob(parts,{type:'audio/mpeg'}));
+  audioPlayer.src = audioURL;
+  audioPlayer.hidden = false;
+  status.textContent = '';
+  await audioPlayer.play().catch(()=>{});
+ } catch (error) {
+  if (audioLoad === request && audioDialog.open) status.textContent = error.message;
+ }
+}
+
+function renderAudio(card,clip) {
+ const panel = card.querySelector('.clip-audio');
+ if (!clip.audioStatus) return;
+ const label = panel.querySelector('.audio-label');
+ const button = panel.querySelector('.audio-button');
+ const messages = {
+  queued:'오디오 추출 대기 중', processing:'오디오 추출 중', failed:'오디오 추출에 실패했습니다.'
+ };
+ const actions = {
+  available:'오디오 추출', failed:'다시 시도', ready:'오디오 재생'
+ };
+ panel.hidden = false;
+ label.textContent = messages[clip.audioStatus] || '';
+ label.hidden = !label.textContent;
+ button.textContent = actions[clip.audioStatus] || '';
+ button.hidden = !button.textContent || (clip.archivedAt && clip.audioStatus !== 'ready');
+}
 function renderCategories(){
  const active=state.clips.filter(c=>!c.archivedAt);
  const names=[...new Set(active.map(c=>c.category||'미분류'))].sort((a,b)=>a==='미분류'?1:b==='미분류'?-1:a.localeCompare(b,'ko'));
@@ -72,6 +145,7 @@ function render(){
   watch.hidden=!!clip.archivedAt;card.querySelector('.edit-button').hidden=!!clip.archivedAt;
   const archiveButton=card.querySelector('.delete-button');archiveButton.textContent=clip.archivedAt?'복원':'×';archiveButton.setAttribute('aria-label',clip.archivedAt?'보관함으로 복원':'보관 기록으로 이동');archiveButton.title=clip.archivedAt?'보관함으로 복원':'보관 기록으로 이동';
   if(clip.archivedAt)card.querySelector('.video-date').textContent=`보관일 · ${new Date(clip.archivedAt).toLocaleDateString('ko-KR')}`;
+  renderAudio(card,clip);
   fragment.append(card);
  }
  $('#grid').replaceChildren(fragment);
@@ -103,7 +177,13 @@ document.addEventListener('click',event=>{
  if(button.dataset.section){state.section=button.dataset.section;render();return;}
  const card=button.closest('article[data-id]');if(!card||state.busy)return;
  const clip=state.clips.find(c=>c.id===card.dataset.id);if(!clip)return;
- if(button.classList.contains('edit-button'))openEdit(clip);
+ if(button.classList.contains('audio-button')){
+  if(clip.audioStatus==='ready'){void openAudio(clip);return;}
+  setBusy(true);
+  state.api.request('audioRetry',{id:clip.id}).then(result=>{replaceClip(result.clip);synced();render();})
+   .catch(setError).finally(()=>setBusy(false));
+ }
+ else if(button.classList.contains('edit-button'))openEdit(clip);
  else if(button.classList.contains('delete-button')){
   if(clip.archivedAt){setBusy(true);state.api.request('restore',{id:clip.id,expectedUpdatedAt:clip.updatedAt}).then(result=>{replaceClip(result.clip);synced();render();toast('보관함으로 복원했습니다.');}).catch(setError).finally(()=>setBusy(false));}
   else{state.deleting=clip;$('#delete-name').textContent=clip.title;$('#delete-error').hidden=true;$('#delete-dialog').showModal();}

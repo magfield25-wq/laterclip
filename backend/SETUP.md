@@ -51,3 +51,25 @@ Script properties에 `GEMINI_API_KEY`를 추가하면 새 영상 저장 시 제�
 ### Facebook 메타데이터 재시도
 
 공개 Facebook 정보 조회는 최대 두 번 요청하며, 로그인 화면 자체에는 접근하지 않습니다. 목록 조회마다 정보가 비어 있는 활성 항목을 최대 한 건 재시도하고, 항목별 15분 간격을 둡니다. 제목을 복구하면 미분류 항목만 AI로 분류하며 사용자 제목·카테고리·메모·시청 상태를 보존합니다. Facebook이 로그인 화면만 반환하면 메타데이터를 보장할 수 없으며, 화면에 그 제한을 표시합니다.
+
+## v2 YouTube 오디오 설정
+
+1. Google Drive에 비공개 오디오 폴더를 만들고, 폴더 주소의 `/folders/` 뒤에 있는 ID를 Apps Script의 `Project Settings > Script properties`에서 `AUDIO_FOLDER_ID`에 넣습니다.
+2. 새 `Code.gs`와 `appsscript.json`을 반영합니다. `Services`에서 `Drive API`를 추가하고, 표준 Google Cloud 프로젝트를 연결한 경우 그 프로젝트에서도 Google Drive API를 활성화합니다. 기존 웹앱 배포의 버전을 갱신하고 새 Drive 읽기 권한을 승인합니다. GitHub Pages에도 갱신된 `web/`을 배포합니다.
+3. 작업을 실행할 Mac이나 서버에 Node.js 22 이상, 최신 yt-dlp(공식 실행 파일 또는 EJS 구성 요소 포함), FFmpeg 및 rclone을 설치합니다. Mac에서 Homebrew를 사용한다면 `brew install node yt-dlp ffmpeg rclone`으로 설치할 수 있습니다.
+4. 작업 장치에서 `rclone config`를 실행하고 해당 Drive 폴더에 쓸 수 있는 Google 계정으로 `drive` 유형의 원격 저장소를 연결합니다.
+5. 작업 장치의 환경 변수에 다음 값을 설정하고 작업을 실행합니다. 키는 개인 환경 변수나 비밀 저장소에 넣습니다.
+
+   | 환경 변수 | 값 |
+   | --- | --- |
+   | `LATERCLIP_ENDPOINT` | 기존 Apps Script 웹앱의 `/exec` 주소 |
+   | `LATERCLIP_TOKEN` | 기존 `API_TOKEN` |
+   | `LATERCLIP_DRIVE_REMOTE` | rclone에서 연결한 이름과 콜론 (예시 `laterclip:`) |
+
+   ```sh
+   node worker/audio-worker.mjs
+   ```
+
+필요할 때 작업 하나만 처리하려면 `node worker/audio-worker.mjs --once`를 사용합니다. 장치가 켜져 있고 작업 프로그램이 실행 중이어야 자동으로 처리됩니다. 북마크에 새로 저장한 YouTube 영상은 자동으로 대기열에 들어가며, 기존 YouTube 영상은 카드의 오디오 추출 버튼으로 추가할 수 있습니다. 실패한 경우 같은 카드에서 다시 시도할 수 있습니다. 다운로드와 변환은 재사용 권한이 있는 영상에 사용해 주세요.
+
+오디오는 최대 90분, 32 MiB까지 처리합니다. 웹페이지에서 재생 버튼을 누르면 인증된 요청으로 Drive의 MP3를 나눠 받아 브라우저에 로드합니다. 전체 파일이 준비되면 플레이어에서 재생할 수 있습니다.

@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 const rows=[['id','savedAt','title','url','platform','category','watched','note','device','updatedAt','thumbnailURL']];
 const secret='a'.repeat(64);
 let writes=0, reads=0;
+let audioFolder = null;
 // Emulate Sheets' apostrophe escape: the cell is stored as literal text, not a formula.
 const literal=v=>typeof v==='string' && v.startsWith("'") ? v.slice(1) : v;
 const sheet={
@@ -15,7 +16,7 @@ const sheet={
  deleteRow:()=>{throw Error('Rows must never be permanently deleted');}
 };
 const context=vm.createContext({Date,JSON,Error,SyntaxError,String,Math,encodeURIComponent,
- PropertiesService:{getScriptProperties:()=>({getProperty:k=>k==='API_TOKEN'?secret:k==='SPREADSHEET_ID'?'sheet-id':null})},
+ PropertiesService:{getScriptProperties:()=>({getProperty:k=>k==='API_TOKEN'?secret:k==='SPREADSHEET_ID'?'sheet-id':k==='AUDIO_FOLDER_ID'?audioFolder:null})},
  LockService:{getScriptLock:()=>({waitLock:()=>{},hasLock:()=>true,releaseLock:()=>{}})},
  SpreadsheetApp:{openById:id=>{assert.equal(id,'sheet-id');return {getSheetByName:name=>name==='Clips'?sheet:null};},flush:()=>{}},
  Utilities:{getUuid:randomUUID},
@@ -66,3 +67,45 @@ assert.equal(context.callLaterClip({action:'list',token:'wrong'}).ok,false);
 const custom=call({action:'update',id:fb.clip.id,expectedUpdatedAt:fb.clip.updatedAt,patch:{category:'자동차·오토바이'}});
 assert.equal(custom.ok,true);assert.equal(custom.clip.category,'자동차·오토바이');
 console.log('PASS: auth, malformed input, URL validation, metadata failure, category rules, cross-format deduplication, formula escaping, revision conflicts, update, list, delete');
+
+audioFolder='private-folder';
+const queued=call({action:'save',url:'https://youtu.be/zyxwvutsrqp'}).clip;
+assert.equal(queued.audioStatus,'queued');
+assert.equal(rows[0][12],'audio');
+assert.equal(call({action:'save',url:queued.url}).clip.audioStatus,'queued');
+assert.equal(call({action:'list'}).clips.find(c=>c.id===first.clip.id).audioStatus,'available');
+const {job}=call({action:'audioClaim'});
+assert.equal(job.videoID,'zyxwvutsrqp');
+assert.equal(job.folder,audioFolder);
+assert.equal(call({action:'audioClaim'}).job,null);
+assert.equal(call({action:'audioFinish',id:queued.id,lease:'wrong'}).ok,false);
+assert.equal(call({action:'audioFinish',id:queued.id,lease:job.lease}).ok,true);
+assert.equal(call({action:'list'}).clips.find(c=>c.id===queued.id).audioStatus,'failed');
+assert.equal(call({action:'audioRetry',id:queued.id}).clip.audioStatus,'queued');
+const {job:retry}=call({action:'audioClaim'});
+let fileFolder='other-folder';
+context.DriveApp={getFileById:id=>{
+ assert.equal(id,'mp3-file');
+ let hasParent=true;
+ return {getParents:()=>({hasNext:()=>hasParent,next:()=>{hasParent=false;return {getId:()=>fileFolder};}}),
+  getName:()=>queued.id+'.mp3',isTrashed:()=>false,getMimeType:()=>'audio/mpeg',getId:()=>id,getSize:()=>1024*1024+3};
+}};
+const finish=()=>call({action:'audioFinish',id:queued.id,lease:retry.lease,fileID:'mp3-file'});
+assert.equal(finish().ok,false,'Reject files outside the configured folder');
+fileFolder=audioFolder;
+assert.equal(finish().ok,true);
+assert.equal(finish().ok,true,'Finishing can be retried after a lost response');
+assert.equal(call({action:'list'}).clips.find(c=>c.id===queued.id).audioStatus,'ready');
+context.ScriptApp={getOAuthToken:()=> 'google-token'};
+context.Utilities.base64Encode=bytes=>Buffer.from(bytes).toString('base64');
+context.UrlFetchApp.fetch=(url,options)=>{
+ assert.equal(options.headers.Range,'bytes=1048576-1048578');
+ assert.equal(options.headers.Authorization,'Bearer google-token');
+ assert.equal(url,'https://www.googleapis.com/drive/v3/files/mp3-file?alt=media');
+ return {getResponseCode:()=>206,getContent:()=>[1,2,3]};
+};
+assert.equal(call({action:'audioRead',id:queued.id,offset:1}).ok,false);
+const chunk=call({action:'audioRead',id:queued.id,offset:1024*1024});
+assert.equal(chunk.data,'AQID');
+assert.equal(chunk.nextOffset,chunk.size);
+console.log('PASS: automatic audio queue, exclusive claim, failure retry, private Drive file validation and ranged playback');

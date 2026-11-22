@@ -7,3 +7,9 @@
 @media(max-width:360px){.main-header{align-items:flex-start}.main-header .primary{font-size:11px;padding:9px}.main-header h1{font-size:23px}.brand{font-size:20px}.video-grid{grid-template-columns:minmax(0,1fr)}.thumbnail{aspect-ratio:2/1}.video-title{font-size:14px;min-height:0}.video-meta,.video-date{font-size:11px}.category-pill{font-size:10px}.card-actions button{font-size:12px}#subtitle{max-width:180px}}
 @media(pointer:coarse){input,textarea,select,dialog input:not([type=checkbox]),dialog textarea,dialog select,.search input{font-size:16px}.card-actions button{min-width:36px;min-height:42px}.video-bottom{gap:2px}.primary,.secondary{min-height:44px}.icon-button{min-width:40px;min-height:40px}}
 @media(prefers-reduced-motion:no-preference){.video,.primary,.secondary{transition:background-color .15s ease}.video:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}}
+
+.clip-audio {margin-top:12px}
+.clip-audio .field-note {margin:0}
+.clip-audio .audio-button {min-height:34px;padding:6px 10px}
+#audio-player {width:100%}
+#audio-title {overflow-wrap:anywhere}

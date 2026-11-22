@@ -9,7 +9,7 @@ const sheet={getDataRange:()=>({getValues:()=>rows.map(r=>[...r])}),getRange:(ro
  assert.equal(row,1);assert.equal(col,12);assert.deepEqual(JSON.parse(JSON.stringify(values)),[['archivedAt']]);
  rows[0][11]='archivedAt';headerWrites++;
 }})};
-const ctx=vm.createContext({PropertiesService:{getScriptProperties:()=>({getProperty:key=>key==='API_TOKEN'?token:'sheet'})},
+const ctx=vm.createContext({PropertiesService:{getScriptProperties:()=>({getProperty:key=>key==='API_TOKEN'?token:key==='SPREADSHEET_ID'?'sheet':null})},
  LockService:{getScriptLock:()=>({waitLock(){},hasLock:()=>true,releaseLock(){}})},
  SpreadsheetApp:{openById:()=>({getSheetByName:()=>sheet})},
  ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})}});
