@@ -5,8 +5,8 @@
 <meta name="description" content="iPhone과 Mac에서 함께 쓰는 나중에 볼 영상 보관함">
 <title>LaterClip · 나중에 볼 영상</title>
 <link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./style.css?v=audio-v2">
-<script type="module" src="./app.js?v=audio-v2"></script>
+<link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./style.css?v=offline1">
+<script type="module" src="./app.js?v=offline1"></script>
 </head><body>
 <a class="skip" href="#main">영상 목록으로 건너뛰기</a>
 <div class="app-shell">
@@ -16,6 +16,7 @@
    <button data-section="전체 영상" aria-pressed="false"><span>▦</span>전체 영상<b data-total>0</b></button>
    <button data-section="아직 안 본 영상" aria-pressed="true"><span>▷</span>아직 안 본 영상<b data-unwatched>0</b></button>
    <button data-section="시청 완료" aria-pressed="false"><span>✓</span>시청 완료<b data-watched>0</b></button>
+   <button data-section="다운로드한 오디오" aria-pressed="false"><span aria-hidden="true">↓</span>다운로드한 오디오<b data-downloads>0</b></button>
    <button data-section="보관 기록" aria-pressed="false"><span>▣</span>보관 기록<b data-archived>—</b></button>
   </nav>
   <div class="category-group"><h2>카테고리</h2><nav class="navigation" id="categories" aria-label="카테고리"></nav></div>
@@ -61,5 +62,5 @@
  <form method="dialog" class="dialog-actions"><button class="secondary">닫기</button></form>
 </dialog>
 
-<template id="video-template"><article class="video"><a class="thumbnail" target="_blank" rel="noopener noreferrer"><div class="thumbnail-placeholder"><span aria-hidden="true">▷</span><small>SAVED FOR LATER</small></div><img loading="lazy" alt="" hidden><span class="open-indicator" aria-hidden="true">↗</span></a><div class="video-body"><div class="video-meta"><span class="video-platform"></span><span class="category-pill"></span></div><a class="video-title" target="_blank" rel="noopener noreferrer"></a><p class="video-note" hidden></p><div class="clip-audio" hidden><p class="field-note audio-label"></p><button class="secondary audio-button"></button></div><div class="video-bottom"><span class="video-date"></span><div class="card-actions"><button class="watch-button" aria-label="시청 완료로 변경" aria-pressed="false">○</button><button class="edit-button" aria-label="영상 정보 수정">수정</button><button class="delete-button" aria-label="영상 삭제">×</button></div></div></div></article></template>
+<template id="video-template"><article class="video"><a class="thumbnail" target="_blank" rel="noopener noreferrer"><div class="thumbnail-placeholder"><span aria-hidden="true">▷</span><small>SAVED FOR LATER</small></div><img loading="lazy" alt="" hidden><span class="open-indicator" aria-hidden="true">↗</span></a><div class="video-body"><div class="video-meta"><span class="video-platform"></span><span class="category-pill"></span></div><a class="video-title" target="_blank" rel="noopener noreferrer"></a><p class="video-note" hidden></p><div class="clip-audio" hidden><p class="field-note audio-label"></p><div class="audio-actions"><button class="secondary audio-button"></button><button class="secondary offline-save" hidden>오프라인 저장</button><button class="quiet offline-remove" hidden>이 기기에서 삭제</button></div></div><div class="video-bottom"><span class="video-date"></span><div class="card-actions"><button class="watch-button" aria-label="시청 완료로 변경" aria-pressed="false">○</button><button class="edit-button" aria-label="영상 정보 수정">수정</button><button class="delete-button" aria-label="영상 삭제">×</button></div></div></div></article></template>
 </body></html>

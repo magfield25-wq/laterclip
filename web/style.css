@@ -13,3 +13,7 @@
 .clip-audio .audio-button {min-height:34px;padding:6px 10px}
 #audio-player {width:100%}
 #audio-title {overflow-wrap:anywhere}
+
+.audio-actions {display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.clip-audio .audio-actions:not(:has(button:not([hidden]))) {display:none}
+.clip-audio .audio-label:not([hidden]) + .audio-actions {margin-top:6px}

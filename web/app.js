@@ -3,9 +3,12 @@ import {config} from './config.js';
 import {ClipAPI,validEndpoint} from './api.js?v=20261019-direct1';
 import {thumbnailURL} from './thumbnail.js?v=20261018-facebook1';
 
+import {listDownloads,readDownload,saveDownload,removeDownload} from './offline-audio.js?v=offline1';
+
 const $=selector=>document.querySelector(selector);
 const categoryIcons={'요리':'♧','여행':'✈','운동':'↟','배움':'▤','테크':'▣','즐길 거리':'♫','미분류':'▧'};
-const librarySections=['전체 영상','아직 안 본 영상','시청 완료','보관 기록'];
+const downloadsSection = '다운로드한 오디오';
+const librarySections=['전체 영상','아직 안 본 영상','시청 완료','보관 기록',downloadsSection];
 const state={clips:[],api:null,busy:false,section:'아직 안 본 영상',editing:null,deleting:null,syncedAt:null};
 const session=createConnectionStore(()=>localStorage,()=>sessionStorage);
 let toastTimer;
@@ -27,47 +30,130 @@ audioPlayer.addEventListener('error',()=>{
  if (audioURL) $('#audio-status').textContent = '오디오를 재생하지 못했습니다.';
 });
 
+const downloads = new Map();
+const saving = new Map();
+const downloadEvents = 'BroadcastChannel' in window ? new BroadcastChannel('laterclip-downloads') : null;
+let localAudioAvailable = false;
+let offlineShellReady = false;
+let downloadRead = 0;
+
+async function refreshDownloads() {
+ const revision = ++downloadRead;
+ try {
+  const items = await listDownloads();
+  if (revision !== downloadRead) return;
+  downloads.clear();
+  for (const item of items) downloads.set(item.id,item);
+  localAudioAvailable = true;
+ } catch (_) {
+  if (revision !== downloadRead) return;
+  localAudioAvailable = false;
+  downloads.clear();
+ }
+ render();
+}
+if (downloadEvents) downloadEvents.onmessage = refreshDownloads;
+
+async function fetchAudio(api,id,progress) {
+ const parts = [];
+ let offset = 0;
+ let size;
+ do {
+  const chunk = await api.request('audioRead',{id,offset});
+  size ??= chunk.size;
+  if (!Number.isSafeInteger(size) || size < 1 || size > 32*1024*1024 || chunk.size !== size ||
+      chunk.nextOffset !== Math.min(offset + 1024*1024,size)) {
+   throw Error('오디오 파일을 읽지 못했습니다.');
+  }
+  const bytes = Uint8Array.from(atob(chunk.data),char=>char.charCodeAt(0));
+  if (bytes.length !== chunk.nextOffset-offset) throw Error('오디오 파일을 읽지 못했습니다.');
+  parts.push(bytes);
+  offset = chunk.nextOffset;
+  progress(Math.floor(100*offset/size));
+ } while (offset < size);
+ return new Blob(parts,{type:'audio/mpeg'});
+}
+
 async function openAudio(clip) {
  clearAudio();
  const request = {};
  audioLoad = request;
+ const current = ()=>audioLoad === request && audioDialog.open;
  const api = state.api;
  const status = $('#audio-status');
  $('#audio-title').textContent = clip.title;
  audioPlayer.hidden = true;
- status.textContent = 'Google Drive에서 오디오를 불러오는 중입니다…';
+ status.textContent = '오디오를 불러오는 중입니다…';
  audioDialog.showModal();
  try {
-  const parts = [];
-  let offset = 0;
-  let size;
-  do {
-   const chunk = await api.request('audioRead',{id:clip.id,offset});
-   if (audioLoad !== request || !audioDialog.open) return;
-   size ??= chunk.size;
-   if (!Number.isSafeInteger(size) || size < 1 || size > 32*1024*1024 || chunk.size !== size ||
-       chunk.nextOffset !== Math.min(offset + 1024*1024,size)) {
-    throw Error('오디오 파일을 읽지 못했습니다.');
+  let audio;
+  if (downloads.has(clip.id)) {
+   audio = await readDownload(clip.id);
+   if (!audio?.size) {
+    void refreshDownloads();
+    throw Error('이 기기에 저장된 오디오를 찾지 못했습니다.');
    }
-   const bytes = Uint8Array.from(atob(chunk.data),char=>char.charCodeAt(0));
-   if (bytes.length !== chunk.nextOffset-offset) throw Error('오디오 파일을 읽지 못했습니다.');
-   parts.push(bytes);
-   offset = chunk.nextOffset;
-   status.textContent = `오디오 불러오는 중 · ${Math.floor(100*offset/size)}%`;
-  } while (offset < size);
-  audioURL = URL.createObjectURL(new Blob(parts,{type:'audio/mpeg'}));
+  } else if (api && navigator.onLine) {
+   audio = await fetchAudio(api,clip.id,percent=>{
+    if (!current()) throw Error('오디오 재생을 닫았습니다.');
+    status.textContent = `오디오 불러오는 중 · ${percent}%`;
+   });
+  } else {
+   throw Error('이 기기에 오디오를 미리 저장해 주세요.');
+  }
+  if (!current()) return;
+  audioURL = URL.createObjectURL(audio);
   audioPlayer.src = audioURL;
   audioPlayer.hidden = false;
   status.textContent = '';
   await audioPlayer.play().catch(()=>{});
  } catch (error) {
-  if (audioLoad === request && audioDialog.open) status.textContent = error.message;
+  if (current()) status.textContent = error.message;
+ }
+}
+
+async function storeOffline(clip) {
+ if (!localAudioAvailable || !offlineShellReady || !navigator.onLine || !state.api ||
+     saving.has(clip.id) || downloads.has(clip.id)) return;
+ const api = state.api;
+ void navigator.storage?.persist?.().catch(()=>{});
+ saving.set(clip.id,0);
+ render();
+ try {
+  const audio = await fetchAudio(api,clip.id,percent=>{
+   saving.set(clip.id,percent);
+   for (const card of $('#grid').children) {
+    if (card.dataset.id===clip.id) card.querySelector('.audio-label').textContent = `저장 중 · ${percent}%`;
+   }
+  });
+  await saveDownload(clip,audio);
+  downloadEvents?.postMessage('changed');
+  await refreshDownloads();
+  toast('이 기기에 오디오를 저장했습니다.');
+ } catch (error) {
+  toast(error.name === 'QuotaExceededError' ? '이 기기의 저장 공간이 부족합니다.' : '오프라인 저장에 실패했습니다. 다시 시도해 주세요.');
+ } finally {
+  saving.delete(clip.id);
+  render();
+ }
+}
+
+async function deleteOffline(id) {
+ try {
+  await removeDownload(id);
+  downloadEvents?.postMessage('changed');
+  await refreshDownloads();
+  toast('이 기기에서 오디오를 삭제했습니다.');
+ } catch (_) {
+  toast('이 기기의 오디오를 삭제하지 못했습니다.');
  }
 }
 
 function renderAudio(card,clip) {
  const panel = card.querySelector('.clip-audio');
- if (!clip.audioStatus) return;
+ const stored = downloads.has(clip.id);
+ const percent = saving.get(clip.id);
+ if (!clip.audioStatus && !stored) return;
  const label = panel.querySelector('.audio-label');
  const button = panel.querySelector('.audio-button');
  const messages = {
@@ -77,10 +163,15 @@ function renderAudio(card,clip) {
   available:'오디오 추출', failed:'다시 시도', ready:'오디오 재생'
  };
  panel.hidden = false;
- label.textContent = messages[clip.audioStatus] || '';
+ label.textContent = stored ? '이 기기에 저장됨' : percent !== undefined ? `저장 중 · ${percent}%` : messages[clip.audioStatus] || '';
  label.hidden = !label.textContent;
- button.textContent = actions[clip.audioStatus] || '';
- button.hidden = !button.textContent || (clip.archivedAt && clip.audioStatus !== 'ready');
+ button.textContent = stored ? '오프라인 재생' : actions[clip.audioStatus] || '';
+ button.hidden = !button.textContent || (clip.archivedAt && clip.audioStatus !== 'ready' && !stored);
+ button.disabled = !stored && (!navigator.onLine || state.busy);
+ const save = panel.querySelector('.offline-save');
+ save.hidden = stored || clip.audioStatus !== 'ready' || !localAudioAvailable;
+ save.disabled = !offlineShellReady || percent !== undefined || !navigator.onLine || state.busy;
+ panel.querySelector('.offline-remove').hidden = !stored || state.section !== downloadsSection;
 }
 function renderCategories(){
  const active=state.clips.filter(c=>!c.archivedAt);
@@ -102,7 +193,12 @@ function toast(text){clearTimeout(toastTimer);$('#toast').textContent=text;$('#t
 function setBusy(busy){state.busy=busy;$('#grid').setAttribute('aria-busy',String(busy));
  for(const selector of ['#add-button','#refresh-button','#save-clip','#confirm-delete','#save-settings','#refresh-metadata','#reclassify-clip'])$(selector).disabled=busy||(!state.api&&['#add-button','#refresh-button'].includes(selector));
  $('#save-clip').textContent=busy?'저장 중…':'저장';$('#save-settings').textContent=busy?'연결 중…':'연결 확인';
- $('#grid').querySelectorAll('button').forEach(b=>b.disabled=busy);
+ $('#grid').querySelectorAll('article').forEach(card=>{
+  card.querySelectorAll('.card-actions button').forEach(b=>b.disabled=busy);
+  const save=card.querySelector('.offline-save');
+  save.disabled=busy||!offlineShellReady||!navigator.onLine||saving.has(card.dataset.id);
+  if (!downloads.has(card.dataset.id)) card.querySelector('.audio-button').disabled=busy||!navigator.onLine;
+ });
  if(busy){$('#sync-status').textContent='Google Sheets와 연결 중…';$('#sync-dot').className='status-dot busy';}
  else if($('#sync-dot').classList.contains('busy')){
   $('#sync-dot').className=state.api?'status-dot':'status-dot disconnected';
@@ -112,21 +208,29 @@ function setBusy(busy){state.busy=busy;$('#grid').setAttribute('aria-busy',Strin
 function synced(){state.syncedAt=new Date();clearError();$('#sync-status').textContent=`Google Sheets · ${state.syncedAt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 동기화`;$('#sync-dot').className='status-dot';}
 function visibleClips(){
  const query=$('#search').value.trim().toLocaleLowerCase(),platform=$('#platform').value;
+ if(state.section===downloadsSection) return [...downloads.values()]
+  .filter(item=>item.title.toLocaleLowerCase().includes(query))
+  .sort((a,b)=>b.downloadedAt-a.downloadedAt);
  return state.clips.filter(c=>(state.section==='보관 기록'?!!c.archivedAt:!c.archivedAt)&&(state.section!=='아직 안 본 영상'||!c.watched)&&(state.section!=='시청 완료'||c.watched)&&(librarySections.includes(state.section)||(c.category||'미분류')===state.section)&&(!platform||c.platform===platform)&&(!query||`${c.title} ${c.url} ${c.note}`.toLocaleLowerCase().includes(query)));
 }
 function render(){
  renderCategories();
- $('#section-title').textContent=state.api?state.section:'보관함 연결이 필요합니다';
+ const local = state.section===downloadsSection;
+ $('#section-title').textContent=state.api||local?state.section:'보관함 연결이 필요합니다';
  const clips=visibleClips();
- $('#subtitle').textContent=state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'아직 영상 수를 조회하지 않았습니다. 내 보관함을 연결해 주세요.';
+ $('#subtitle').textContent=local?`이 기기에 저장된 오디오 ${downloads.size}개`:state.api?`iPhone과 Mac에서 모아둔 영상 ${clips.length}개`:'아직 영상 수를 조회하지 않았습니다. 내 보관함을 연결해 주세요.';
  const active=state.clips.filter(c=>!c.archivedAt);
  $('[data-total]').textContent=state.api?active.length:'—';$('[data-unwatched]').textContent=state.api?active.filter(c=>!c.watched).length:'—';$('[data-watched]').textContent=state.api?active.filter(c=>c.watched).length:'—';$('[data-archived]').textContent=state.api?state.clips.filter(c=>c.archivedAt).length:'—';
  document.querySelectorAll('[data-section]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.section===state.section)));
  document.querySelectorAll('[data-category-count]').forEach(b=>b.textContent=state.clips.filter(c=>c.category===b.dataset.categoryCount).length);
- $('#welcome').hidden=!!state.api;$('#empty').hidden=!state.api||clips.length>0;
+ $('[data-downloads]').textContent=downloads.size;
+ $('#welcome').hidden=!!state.api||local;$('#empty').hidden=(!state.api&&!local)||clips.length>0;
+ $('#platform').disabled=local;
+ if(local) $('#error-banner').hidden=true;
  const filtering=$('#search').value||$('#platform').value||state.section!=='전체 영상';
  $('#empty-title').textContent=state.clips.length&&filtering?'조건에 맞는 영상이 없습니다':'아직 저장한 영상이 없습니다';
  $('#empty-description').textContent=state.clips.length&&filtering?'검색어나 카테고리를 바꿔보세요.':'Safari의 공유 단축어로 저장하거나 링크를 추가해 주세요.';
+ if(local&&!clips.length){$('#empty-title').textContent=downloads.size?'검색 결과가 없습니다':'이 기기에 저장한 오디오가 없습니다';$('#empty-description').textContent=downloads.size?'다른 검색어로 찾아보세요.':'인터넷에 연결되어 있을 때 동영상 카드에서 오프라인 저장을 누르세요.';}
  if(state.section==='보관 기록'&&!clips.length){$('#empty-title').textContent='보관 기록이 없습니다';$('#empty-description').textContent='목록에서 삭제한 영상은 여기에 남으며 언제든 복원할 수 있습니다.';}
  const fragment=document.createDocumentFragment();
  for(const clip of clips){
@@ -135,7 +239,8 @@ function render(){
   const title=card.querySelector('.video-title');title.textContent=clip.title||'제목 없는 영상';
   const thumb=card.querySelector('.thumbnail');
   if(url){title.href=url;thumb.href=url;}else{title.removeAttribute('href');thumb.removeAttribute('href');}
-  const image=card.querySelector('img');const imageURL=thumbnailURL(clip);
+  const image=card.querySelector('img');const imageURL=!local&&navigator.onLine?thumbnailURL(clip):null;
+  if(local){thumb.hidden=true;card.querySelector('.video-meta').hidden=true;card.querySelector('.video-bottom').hidden=true;}
   if(imageURL){image.hidden=false;image.style.opacity='0';image.addEventListener('load',()=>{image.style.opacity='1';});image.addEventListener('error',()=>{image.hidden=true;});image.referrerPolicy='no-referrer';image.src=imageURL;}
   card.querySelector('.video-platform').textContent=clip.platform||'Web';card.querySelector('.category-pill').textContent=clip.category||'미분류';
   const note=card.querySelector('.video-note');note.hidden=!clip.note;note.textContent=clip.note;
@@ -152,7 +257,7 @@ function render(){
  $('#add-button').disabled=!state.api||state.busy;$('#refresh-button').disabled=!state.api||state.busy;$('#disconnect-button').hidden=!state.api;
 }
 async function refresh(){
- if(!state.api||state.busy)return;setBusy(true);
+ if(!state.api||state.busy||!navigator.onLine)return;setBusy(true);
  try{const result=await state.api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));synced();render();}
  catch(error){setError(error);}finally{setBusy(false);}
 }
@@ -164,7 +269,7 @@ async function connect(endpoint,token,remember){
  const api=new ClipAPI(endpoint,token);setBusy(true);
  try{
   const result=await api.request('list',{includeArchived:true});if(!Array.isArray(result.clips))throw Error('영상 목록을 받지 못했습니다.');
-  state.api?.close();state.api=api;state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));state.section='아직 안 본 영상';
+  state.api?.close();state.api=api;state.clips=result.clips.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));if(state.section!==downloadsSection)state.section='아직 안 본 영상';
   const stored=remember===undefined?true:session.write(remember?{endpoint,token}:null);
   $('#token').value='';synced();render();return stored;
  }catch(error){api.close();throw error;}finally{setBusy(false);}
@@ -175,8 +280,14 @@ document.addEventListener('click',event=>{
  const button=event.target.closest('button');if(!button)return;
  if(button.dataset.close){if(!state.busy)document.getElementById(button.dataset.close).close();return;}
  if(button.dataset.section){state.section=button.dataset.section;render();return;}
- const card=button.closest('article[data-id]');if(!card||state.busy)return;
- const clip=state.clips.find(c=>c.id===card.dataset.id);if(!clip)return;
+ const card=button.closest('article[data-id]');if(!card)return;
+ const id=card.dataset.id;
+ const clip=state.clips.find(c=>c.id===id) || downloads.get(id);
+ if(!clip)return;
+ if(button.classList.contains('offline-remove')){void deleteOffline(id);return;}
+ if(button.classList.contains('offline-save')){void storeOffline(clip);return;}
+ if(button.classList.contains('audio-button')&&downloads.has(id)){void openAudio(clip);return;}
+ if(state.busy)return;
  if(button.classList.contains('audio-button')){
   if(clip.audioStatus==='ready'){void openAudio(clip);return;}
   setBusy(true);
@@ -254,9 +365,35 @@ document.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();$('#search').focus();}
  if(event.key.toLowerCase()==='n'&&!event.metaKey&&!event.ctrlKey&&!event.altKey&&!document.querySelector('dialog[open]')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))openAdd();
 });
-setInterval(()=>{if(!document.hidden)refresh();},60000);
-render();
-try{
+function reconnect() {
  const previous=session.read();
- if(previous?.endpoint&&previous?.token){$('#remember-session').checked=Boolean(previous.remember);connect(previous.endpoint,previous.token).catch(setError);}
-}catch(error){setError(error);}
+ if(previous?.endpoint&&previous?.token){
+  $('#remember-session').checked=Boolean(previous.remember);
+  connect(previous.endpoint,previous.token).catch(error=>{
+   if(state.section!==downloadsSection)setError(error);
+  });
+ }
+}
+setInterval(()=>{if(!document.hidden)refresh();},60000);
+window.addEventListener('offline',()=>{
+ state.section=downloadsSection;
+ $('#sync-status').textContent='오프라인';
+ render();
+});
+window.addEventListener('online',()=>{
+ render();
+ if(state.api)void refresh();
+ else if(!state.busy)reconnect();
+});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshDownloads();});
+if ('serviceWorker' in navigator) {
+ navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'})
+  .then(()=>navigator.serviceWorker.ready).then(()=>{offlineShellReady=true;render();}).catch(()=>{});
+}
+if(!navigator.onLine){
+ state.section=downloadsSection;
+ $('#sync-status').textContent='오프라인';
+}
+render();
+void refreshDownloads();
+if(navigator.onLine)reconnect();
