@@ -1,6 +1,6 @@
-const shellCache = 'laterclip-shell-offline1';
+const shellCache = 'laterclip-shell-offline2';
 const shellFiles = [
- 'index.html','style.css?v=offline1','app.js?v=offline1','offline-audio.js?v=offline1',
+ 'index.html','style.css?v=offline2','app.js?v=offline2','offline-audio.js?v=offline1',
  'connection-store.js?v=20261020-remember1','config.js','api.js?v=20261019-direct1',
  'thumbnail.js?v=20261018-facebook1','manifest.webmanifest','icon.svg','apple-touch-icon.png'
 ];

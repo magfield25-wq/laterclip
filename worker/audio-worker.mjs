@@ -43,7 +43,7 @@ async function prepare(job) {
     return file?.ID;
   }
   const existing = await existingFile();
-  if (existing) return existing;
+  if (existing || job.cleanupOnly) return existing;
 
   const directory = await mkdtemp(join(tmpdir(),'laterclip-audio-'));
   try {
@@ -77,6 +77,7 @@ do {
     let fileID;
     try { fileID = await prepare(job); }
     catch (error) {
+      if (job.cleanupOnly) throw error;
       console.error('오디오 추출 또는 Drive 업로드 실패:',job.id,error.stderr?.trim().split('\n').at(-1) || error.message);
       if (process.argv.includes('--once')) process.exitCode = 1;
     }

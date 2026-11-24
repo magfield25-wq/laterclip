@@ -136,7 +136,16 @@ function doPost(e) {
       if (request.action === 'delete' || request.action === 'archive' || request.action === 'restore') {
         clip.updatedAt=nextRevision_(clip);
         clip.archivedAt=request.action==='restore'?'':clip.archivedAt || clip.updatedAt;
-        sheet.getRange(index+1,1,1,HEADERS.length).setValues([HEADERS.map(h=>safeCell_(clip[h]))]);
+        const values = HEADERS.map(h=>safeCell_(clip[h]));
+        if (clip.archivedAt && audioFolder && clip.platform === 'YouTube') {
+          const audio = audioState_(rows[index][HEADERS.length]);
+          if (audio.status === 'ready') trashAudio_(audio.fileID,clip.id);
+          if (audio.status !== 'processing') {
+            values.push('');
+            clip.audioStatus = 'available';
+          }
+        }
+        sheet.getRange(index+1,1,1,values.length).setValues([values]);
         SpreadsheetApp.flush(); return json_({ok:true,clip});
       }
       if (clip.archivedAt) throw new Error('보관 기록에서 먼저 복원해 주세요.');
@@ -187,6 +196,14 @@ function audioState_(cell) {
   try {return JSON.parse(cell) || {};} catch (_) {return {status:'failed'};}
 }
 
+function trashAudio_(fileID,clipID) {
+  const file = DriveApp.getFileById(fileID);
+  if (file.getName() !== clipID+'.mp3' || file.getMimeType() !== 'audio/mpeg') {
+    throw new Error('북마크에 연결된 오디오 파일을 확인해 주세요.');
+  }
+  if (!file.isTrashed()) file.setTrashed(true);
+}
+
 function audioRequest_(request,sheet,rows,clips,column,folder,lock) {
   const now = Date.now();
   const stateOf = row => audioState_(row[column-1]);
@@ -195,13 +212,21 @@ function audioRequest_(request,sheet,rows,clips,column,folder,lock) {
     SpreadsheetApp.flush();
   };
   if (request.action === 'audioClaim') {
-    const clip = clips.find(c=>!c.archivedAt && youtubeID_(c.url) &&
-      (c.audioStatus === 'queued' || (c.audioStatus === 'processing' &&
-        stateOf(rows.find(r=>r[0]===c.id)).expiresAt <= now)));
-    if (!clip) return json_({ok:true,job:null});
-    const lease = Utilities.getUuid();
-    write(rows.find(r=>r[0]===clip.id),{status:'processing',lease,expiresAt:now+30*60*1000});
-    return json_({ok:true,job:{id:clip.id,videoID:youtubeID_(clip.url),lease,folder}});
+    for (const row of rows.slice(1)) {
+      const [id,,,,platform] = row;
+      if (!id || platform !== 'YouTube') continue;
+      const audio = stateOf(row);
+      const archived = Boolean(row[HEADERS.length-1]);
+      const expired = audio.status === 'processing' && audio.expiresAt <= now;
+      if (!expired && (archived || audio.status !== 'queued')) continue;
+      const videoID = youtubeID_(row[3]);
+      if (!videoID) continue;
+      const lease = Utilities.getUuid();
+      const jobFolder = expired && audio.folder ? audio.folder : folder;
+      write(row,{status:'processing',lease,folder:jobFolder,expiresAt:now+30*60*1000});
+      return json_({ok:true,job:{id,videoID,lease,folder:jobFolder,cleanupOnly:archived}});
+    }
+    return json_({ok:true,job:null});
   }
   const clip = clips.find(c=>c.id===request.id && youtubeID_(c.url));
   if (!clip) throw new Error('YouTube 북마크를 찾지 못했습니다.');
@@ -216,21 +241,26 @@ function audioRequest_(request,sheet,rows,clips,column,folder,lock) {
   }
   if (request.action === 'audioFinish') {
     if (audio.lease !== request.lease || !audio.lease) throw new Error('오디오 작업이 만료되었습니다.');
-    if (audio.status === 'ready' || audio.status === 'failed') return json_({ok:true});
+    if (audio.status === 'ready' || audio.status === 'failed' || audio.status === 'available') return json_({ok:true});
     if (!request.fileID) {
-      write(row,{status:'failed',lease:audio.lease});
+      write(row,{status:clip.archivedAt?'available':'failed',lease:audio.lease});
       return json_({ok:true});
     }
     if (!/^[\w-]+$/.test(request.fileID)) throw new Error('Drive 파일 ID가 올바르지 않습니다.');
     const file = DriveApp.getFileById(request.fileID);
     const parents = file.getParents();
     let inFolder = false;
-    while (parents.hasNext()) if (parents.next().getId() === folder) inFolder = true;
-    if (!inFolder || file.isTrashed() || file.getName() !== clip.id+'.mp3' ||
+    while (parents.hasNext()) if (parents.next().getId() === (audio.folder || folder)) inFolder = true;
+    if (!inFolder || (!clip.archivedAt && file.isTrashed()) || file.getName() !== clip.id+'.mp3' ||
         file.getMimeType() !== 'audio/mpeg' || file.getSize() < 1 || file.getSize() > AUDIO_LIMIT) {
       throw new Error('Drive에 저장한 오디오 파일을 확인해 주세요.');
     }
-    write(row,{status:'ready',lease:audio.lease,fileID:file.getId(),size:file.getSize()});
+    if (clip.archivedAt) {
+      trashAudio_(file.getId(),clip.id);
+      write(row,{status:'available',lease:audio.lease});
+    } else {
+      write(row,{status:'ready',lease:audio.lease,fileID:file.getId(),size:file.getSize()});
+    }
     return json_({ok:true});
   }
   const offset = request.offset;

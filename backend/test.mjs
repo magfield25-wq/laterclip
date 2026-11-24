@@ -84,11 +84,13 @@ assert.equal(call({action:'list'}).clips.find(c=>c.id===queued.id).audioStatus,'
 assert.equal(call({action:'audioRetry',id:queued.id}).clip.audioStatus,'queued');
 const {job:retry}=call({action:'audioClaim'});
 let fileFolder='other-folder';
+let trashed=false;
+let trashFails=false;
 context.DriveApp={getFileById:id=>{
  assert.equal(id,'mp3-file');
  let hasParent=true;
  return {getParents:()=>({hasNext:()=>hasParent,next:()=>{hasParent=false;return {getId:()=>fileFolder};}}),
-  getName:()=>queued.id+'.mp3',isTrashed:()=>false,getMimeType:()=>'audio/mpeg',getId:()=>id,getSize:()=>1024*1024+3};
+  getName:()=>queued.id+'.mp3',isTrashed:()=>trashed,setTrashed:value=>{if(trashFails)throw Error('Drive unavailable'); trashed=value;},getMimeType:()=>'audio/mpeg',getId:()=>id,getSize:()=>1024*1024+3};
 }};
 const finish=()=>call({action:'audioFinish',id:queued.id,lease:retry.lease,fileID:'mp3-file'});
 assert.equal(finish().ok,false,'Reject files outside the configured folder');
@@ -109,3 +111,27 @@ const chunk=call({action:'audioRead',id:queued.id,offset:1024*1024});
 assert.equal(chunk.data,'AQID');
 assert.equal(chunk.nextOffset,chunk.size);
 console.log('PASS: automatic audio queue, exclusive claim, failure retry, private Drive file validation and ranged playback');
+
+const archiveAudio=()=>call({action:'archive',id:queued.id,expectedUpdatedAt:queued.updatedAt});
+trashFails=true;
+assert.equal(archiveAudio().ok,false);
+assert.equal(call({action:'list'}).clips.some(c=>c.id===queued.id),true);
+trashFails=false;
+audioFolder='new-folder';
+let withAudioArchived=archiveAudio().clip;
+assert.ok(withAudioArchived.archivedAt);
+assert.equal(trashed,true,'Trash by recorded file ID even after changing upload folders');
+assert.equal(withAudioArchived.audioStatus,'available');
+const restoredAudio=call({action:'restore',id:queued.id,expectedUpdatedAt:withAudioArchived.updatedAt}).clip;
+assert.equal(restoredAudio.audioStatus,'available');
+assert.equal(call({action:'audioRetry',id:queued.id}).clip.audioStatus,'queued');
+const {job:running}=call({action:'audioClaim'});
+withAudioArchived=call({action:'archive',id:queued.id,expectedUpdatedAt:restoredAudio.updatedAt}).clip;
+assert.equal(withAudioArchived.audioStatus,'processing');
+trashed=false;
+fileFolder=audioFolder;
+assert.equal(call({action:'audioFinish',id:queued.id,lease:running.lease,fileID:'mp3-file'}).ok,true);
+assert.equal(trashed,true,'An upload that finishes after archive is also trashed');
+assert.equal(call({action:'audioFinish',id:queued.id,lease:running.lease,fileID:'mp3-file'}).ok,true);
+assert.equal(call({action:'list',includeArchived:true}).clips.find(c=>c.id===queued.id).audioStatus,'available');
+console.log('PASS: archive trashes linked Drive audio, preserves bookmarks on Drive error and handles in-flight uploads');
